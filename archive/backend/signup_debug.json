@@ -1,0 +1,52 @@
+{
+  "timestamp": "2026-02-27T10:49:12.960Z",
+  "body": {
+    "name": "samar",
+    "phone": "6262323241",
+    "vehicleType": "bike",
+    "email": "samar@gmail.com",
+    "address": "a -312",
+    "vehicleNumber": "KA 05 CS 3030",
+    "drivingLicenseNumber": "DL-12345673DF",
+    "accountHolder": "SAMAR",
+    "accountNumber": "30730199992121",
+    "ifsc": "HDFC1234DF",
+    "aadhar": {},
+    "pan": {},
+    "dl": {}
+  }
+}
+{
+  "timestamp": "2026-02-28T03:31:05.996Z",
+  "body": {
+    "name": "naman",
+    "phone": "6262351996",
+    "vehicleType": "bike",
+    "email": "naman@gmail.com",
+    "address": "a-316",
+    "vehicleNumber": "KA 25 XS 2121",
+    "drivingLicenseNumber": "DL1234556DFD",
+    "accountHolder": "NAMAN",
+    "accountNumber": "307301717171",
+    "ifsc": "HDFC",
+    "dl": {}
+  }
+}
+{
+  "timestamp": "2026-02-28T10:57:30.643Z",
+  "body": {
+    "name": "yash",
+    "phone": "6263514141",
+    "vehicleType": "bike",
+    "email": "yash@gmail.com",
+    "address": "a-316",
+    "vehicleNumber": "KA 29 XS 2026",
+    "drivingLicenseNumber": "JK0220200000000",
+    "accountHolder": "YASH",
+    "accountNumber": "30730100006312",
+    "ifsc": "HARDAX0",
+    "aadhar": {},
+    "pan": {},
+    "dl": {}
+  }
+}
