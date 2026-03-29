@@ -8,11 +8,20 @@ import {
     getCustomerTransactions,
 } from "../controller/customerAuthController.js";
 import { verifyToken } from "../middleware/authMiddleware.js";
+import {
+    authRouteRateLimiter,
+    createContentLengthGuard,
+    otpRouteRateLimiter,
+} from "../middleware/securityMiddlewares.js";
 
 const router = express.Router();
-router.post("/send-signup-otp", signupCustomer);
-router.post("/send-login-otp", loginCustomer);
-router.post("/verify-otp", verifyCustomerOTP);
+const smallAuthPayload = createContentLengthGuard(
+    parseInt(process.env.AUTH_MAX_PAYLOAD_BYTES || "16384", 10),
+    "Auth payload too large",
+);
+router.post("/send-signup-otp", authRouteRateLimiter, otpRouteRateLimiter, smallAuthPayload, signupCustomer);
+router.post("/send-login-otp", authRouteRateLimiter, otpRouteRateLimiter, smallAuthPayload, loginCustomer);
+router.post("/verify-otp", authRouteRateLimiter, otpRouteRateLimiter, smallAuthPayload, verifyCustomerOTP);
 
 // Profile routes
 router.get("/profile", verifyToken, getCustomerProfile);

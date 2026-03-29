@@ -4,6 +4,7 @@ import Notification from "../models/notification.js";
 import { WORKFLOW_STATUS } from "../constants/orderWorkflow.js";
 import { processSellerTimeoutJob, processDeliveryTimeoutJob } from "../services/orderWorkflowService.js";
 import { compensateOrderCancellation } from "../services/orderCompensation.js";
+import logger from "../services/logger.js";
 
 dotenv.config();
 
@@ -19,6 +20,8 @@ const AUTO_CANCEL_INTERVAL_MS = parseInt(
  * Legacy v1 orders use status + expiresAt only.
  */
 const autoCancelExpiredOrders = async () => {
+  const startTime = Date.now();
+  
   try {
     const now = new Date();
 
@@ -34,11 +37,11 @@ const autoCancelExpiredOrders = async () => {
       try {
         await processSellerTimeoutJob({ orderId: row.orderId });
       } catch (err) {
-        console.error(
-          "[OrderAutoCancelJob] v2 seller timeout failed",
-          row.orderId,
-          err.message,
-        );
+        logger.error('v2 seller timeout failed', {
+          jobName: 'orderAutoCancelJob',
+          orderId: row.orderId,
+          error: err.message
+        });
       }
     }
 
@@ -55,11 +58,53 @@ const autoCancelExpiredOrders = async () => {
         const attempt = row.deliverySearchMeta?.attempt || 1;
         await processDeliveryTimeoutJob({ orderId: row.orderId, attempt });
       } catch (err) {
-        console.error(
-          "[OrderAutoCancelJob] v2 delivery timeout failed",
-          row.orderId,
-          err.message,
+        logger.error('v2 delivery timeout failed', {
+          jobName: 'orderAutoCancelJob',
+          orderId: row.orderId,
+          error: err.message
+        });
+      }
+    }
+
+    const paymentExpiredOrders = await Order.find({
+      workflowVersion: { $gte: 2 },
+      workflowStatus: WORKFLOW_STATUS.CREATED,
+      paymentMode: "ONLINE",
+      paymentStatus: { $ne: "PAID" },
+      "stockReservation.status": { $ne: "RELEASED" },
+      "stockReservation.expiresAt": { $lte: now },
+    })
+      .select("_id orderId")
+      .lean();
+
+    for (const row of paymentExpiredOrders) {
+      try {
+        const updated = await Order.findOneAndUpdate(
+          {
+            _id: row._id,
+            workflowStatus: WORKFLOW_STATUS.CREATED,
+            paymentStatus: { $ne: "PAID" },
+          },
+          {
+            $set: {
+              workflowStatus: WORKFLOW_STATUS.CANCELLED,
+              status: "cancelled",
+              orderStatus: "cancelled",
+              cancelledBy: "system",
+              cancelReason: "Payment timeout",
+            },
+          },
+          { new: true },
         );
+        if (updated) {
+          await compensateOrderCancellation(updated, updated.orderId);
+        }
+      } catch (err) {
+        logger.error('payment timeout cancellation failed', {
+          jobName: 'orderAutoCancelJob',
+          orderId: row.orderId,
+          error: err.message
+        });
       }
     }
 
@@ -81,11 +126,11 @@ const autoCancelExpiredOrders = async () => {
       try {
         await compensateOrderCancellation(order, order.orderId);
       } catch (e) {
-        console.error(
-          "[OrderAutoCancelJob] legacy compensation failed",
-          order.orderId,
-          e.message,
-        );
+        logger.error('legacy compensation failed', {
+          jobName: 'orderAutoCancelJob',
+          orderId: order.orderId,
+          error: e.message
+        });
       }
 
       if (order.seller) {
@@ -100,29 +145,56 @@ const autoCancelExpiredOrders = async () => {
       }
     }
 
-    const n = v2Expired.length + v2DeliveryExpired.length + legacyExpired.length;
+    const n =
+      v2Expired.length +
+      v2DeliveryExpired.length +
+      paymentExpiredOrders.length +
+      legacyExpired.length;
+    
+    const duration = Date.now() - startTime;
+    
     if (n > 0) {
-      console.log(
-        `[OrderAutoCancelJob] Processed ${v2Expired.length} v2 seller + ${v2DeliveryExpired.length} v2 delivery + ${legacyExpired.length} legacy expired orders at ${now.toISOString()}`,
-      );
+      logger.info('Order auto-cancel job completed', {
+        jobName: 'orderAutoCancelJob',
+        duration,
+        v2SellerExpired: v2Expired.length,
+        v2DeliveryExpired: v2DeliveryExpired.length,
+        paymentExpired: paymentExpiredOrders.length,
+        legacyExpired: legacyExpired.length,
+        total: n
+      });
     }
   } catch (err) {
-    console.error("[OrderAutoCancelJob] Error:", err);
+    const duration = Date.now() - startTime;
+    logger.error('Order auto-cancel job failed', {
+      jobName: 'orderAutoCancelJob',
+      duration,
+      error: err.message,
+      stack: err.stack
+    });
   }
 };
 
+/**
+ * Start order auto-cancel job using distributed scheduler
+ * This function is called by the scheduler process role
+ */
 export const startOrderAutoCancelJob = () => {
-  if (globalThis.__ORDER_AUTO_CANCEL_STARTED__) {
-    return;
-  }
-  globalThis.__ORDER_AUTO_CANCEL_STARTED__ = true;
-
-  console.log(
-    `[OrderAutoCancelJob] Starting auto-cancel job with interval ${AUTO_CANCEL_INTERVAL_MS}ms (v2 + legacy fallback)`,
-  );
-
-  setInterval(autoCancelExpiredOrders, AUTO_CANCEL_INTERVAL_MS);
-  void autoCancelExpiredOrders();
+  // This function is now a no-op - the distributed scheduler handles registration
+  // Kept for backward compatibility
+  logger.warn('startOrderAutoCancelJob called directly - use distributed scheduler instead');
 };
+
+/**
+ * Get the job handler function for distributed scheduler registration
+ * @returns {Function}
+ */
+export const getOrderAutoCancelJobHandler = () => autoCancelExpiredOrders;
+
+/**
+ * Get the job interval in milliseconds
+ * @returns {number}
+ */
+export const getOrderAutoCancelJobInterval = () => AUTO_CANCEL_INTERVAL_MS;
 
 export default startOrderAutoCancelJob;

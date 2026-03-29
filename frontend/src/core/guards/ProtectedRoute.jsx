@@ -3,7 +3,7 @@ import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@core/context/AuthContext';
 
 const ProtectedRoute = ({ children }) => {
-    const { isAuthenticated, isLoading } = useAuth();
+    const { isAuthenticated, isLoading, user } = useAuth();
     const location = useLocation();
 
     if (isLoading) {
@@ -25,6 +25,30 @@ const ProtectedRoute = ({ children }) => {
             return <Navigate to="/delivery/auth" state={{ from: location }} replace />;
         }
         return <Navigate to="/login" state={{ from: location }} replace />;
+    }
+
+    if (location.pathname.startsWith('/seller')) {
+        const applicationStatus =
+            user?.applicationStatus || (user?.isVerified ? 'approved' : 'pending');
+        const isApprovedSeller =
+            Boolean(user) &&
+            user.isVerified === true &&
+            user.isActive === true &&
+            applicationStatus === 'approved';
+
+        if (!isApprovedSeller) {
+            return (
+                <Navigate
+                    to="/seller/pending-approval"
+                    state={{
+                        approvalRequired: true,
+                        applicationStatus,
+                        rejectionReason: user?.rejectionReason || '',
+                    }}
+                    replace
+                />
+            );
+        }
     }
 
     return <>{children}</>;

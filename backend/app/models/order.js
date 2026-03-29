@@ -103,6 +103,57 @@ const orderSchema = new mongoose.Schema(
       default: "CREATED",
       index: true,
     },
+    stockReservation: {
+      status: {
+        type: String,
+        enum: ["RESERVED", "COMMITTED", "RELEASED"],
+        default: "COMMITTED",
+        index: true,
+      },
+      reservedAt: {
+        type: Date,
+        default: Date.now,
+      },
+      expiresAt: {
+        type: Date,
+        default: null,
+      },
+      releasedAt: {
+        type: Date,
+        default: null,
+      },
+    },
+    // Multi-seller checkout fields
+    checkoutGroupId: {
+      type: String,
+      index: true,
+      default: null,
+    },
+    checkoutGroupSize: {
+      type: Number,
+      default: 1,
+    },
+    checkoutGroupIndex: {
+      type: Number,
+      default: 0,
+    },
+    
+    // Idempotency tracking
+    placement: {
+      idempotencyKey: {
+        type: String,
+        default: undefined,
+      },
+      idempotencyKeyExpiry: {
+        type: Date,
+        default: null,
+      },
+      createdFrom: {
+        type: String,
+        enum: ["DIRECT_ITEMS", "CART"],
+        default: "DIRECT_ITEMS",
+      },
+    },
     orderStatus: {
       type: String,
       default: "pending",
@@ -389,6 +440,28 @@ orderSchema.index({ paymentMode: 1, paymentStatus: 1, createdAt: -1 });
 orderSchema.index({ orderStatus: 1, "settlementStatus.overall": 1, createdAt: -1 });
 orderSchema.index({ seller: 1, "settlementStatus.sellerPayout": 1, status: 1 });
 orderSchema.index({ deliveryBoy: 1, "settlementStatus.riderPayout": 1, status: 1 });
+orderSchema.index(
+  { customer: 1, "placement.idempotencyKey": 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      "placement.idempotencyKey": { $type: "string" },
+    },
+  },
+);
+orderSchema.index({ "stockReservation.status": 1, "stockReservation.expiresAt": 1 });
+
+// Phase 2: Multi-seller checkout index
+orderSchema.index({ checkoutGroupId: 1, createdAt: -1 });
+
+// Phase 2: TTL index for idempotency key expiry
+orderSchema.index(
+  { "placement.idempotencyKeyExpiry": 1 },
+  { 
+    expireAfterSeconds: 0,
+    partialFilterExpression: { "placement.idempotencyKeyExpiry": { $type: "date" } }
+  }
+);
 
 // BUGFIX: Pre-save hook to validate customer reference integrity
 orderSchema.pre('save', function(next) {

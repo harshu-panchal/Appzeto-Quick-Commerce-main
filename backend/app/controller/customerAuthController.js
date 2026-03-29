@@ -2,7 +2,17 @@ import Customer from "../models/customer.js";
 import Transaction from "../models/transaction.js";
 import jwt from "jsonwebtoken";
 import handleResponse from "../utils/helper.js";
-import { generateOTP, useRealSMS } from "../utils/otp.js";
+import {
+    issueCustomerOtp,
+    sanitizeCustomer,
+    verifyCustomerOtpCode,
+} from "../services/otpAuthService.js";
+import {
+    sendLoginOtpSchema,
+    sendSignupOtpSchema,
+    validateSchema,
+    verifyOtpSchema,
+} from "../validation/customerAuthValidation.js";
 
 const generateToken = (customer) =>
     jwt.sign(
@@ -16,55 +26,18 @@ const generateToken = (customer) =>
 ================================ */
 export const signupCustomer = async (req, res) => {
     try {
-        const { name, phone } = req.body;
+        const payload = validateSchema(sendSignupOtpSchema, req.body || {});
 
-        if (!name || !phone) {
-            return handleResponse(
-                res,
-                400,
-                "Name and phone number are required"
-            );
-        }
+        await issueCustomerOtp({
+            name: payload.name,
+            rawPhone: payload.phone,
+            flow: "signup",
+            ipAddress: req.ip,
+        });
 
-        let customer = await Customer.findOne({ phone });
-
-        if (customer && customer.isVerified) {
-            return handleResponse(
-                res,
-                400,
-                "Customer already exists, please login"
-            );
-        }
-
-        const otp = generateOTP();
-
-        if (!customer) {
-            customer = await Customer.create({
-                name,
-                phone,
-                otp,
-                otpExpiry: Date.now() + 5 * 60 * 1000,
-            });
-        } else {
-            customer.otp = otp;
-            customer.otpExpiry = Date.now() + 5 * 60 * 1000;
-            await customer.save();
-        }
-
-        if (useRealSMS()) {
-            // TODO: Send OTP via SMS (Twilio/SMS India Hub)
-            console.log("Signup OTP (real SMS mode):", otp);
-        } else {
-            console.log("Signup OTP (mock mode): use 1234");
-        }
-
-        return handleResponse(
-            res,
-            200,
-            "OTP sent successfully"
-        );
+        return handleResponse(res, 200, "If the number is eligible, OTP has been sent");
     } catch (error) {
-        return handleResponse(res, 500, error.message);
+        return handleResponse(res, error.statusCode || 500, error.message);
     }
 };
 
@@ -73,46 +46,17 @@ export const signupCustomer = async (req, res) => {
 ================================ */
 export const loginCustomer = async (req, res) => {
     try {
-        const { phone } = req.body;
+        const payload = validateSchema(sendLoginOtpSchema, req.body || {});
 
-        if (!phone) {
-            return handleResponse(
-                res,
-                400,
-                "Phone number is required"
-            );
-        }
+        await issueCustomerOtp({
+            rawPhone: payload.phone,
+            flow: "login",
+            ipAddress: req.ip,
+        });
 
-        const customer = await Customer.findOne({ phone });
-
-        if (!customer || !customer.isVerified) {
-            return handleResponse(
-                res,
-                404,
-                "Customer not found, please signup"
-            );
-        }
-
-        const otp = generateOTP();
-
-        customer.otp = otp;
-        customer.otpExpiry = Date.now() + 5 * 60 * 1000;
-        await customer.save();
-
-        if (useRealSMS()) {
-            // TODO: Send OTP via SMS (Twilio/SMS India Hub)
-            console.log("Login OTP (real SMS mode):", otp);
-        } else {
-            console.log("Login OTP (mock mode): use 1234");
-        }
-
-        return handleResponse(
-            res,
-            200,
-            "OTP sent successfully"
-        );
+        return handleResponse(res, 200, "If the number is eligible, OTP has been sent");
     } catch (error) {
-        return handleResponse(res, 500, error.message);
+        return handleResponse(res, error.statusCode || 500, error.message);
     }
 };
 
@@ -121,37 +65,12 @@ export const loginCustomer = async (req, res) => {
 ================================ */
 export const verifyCustomerOTP = async (req, res) => {
     try {
-        const { phone, otp } = req.body;
-
-        if (!phone || !otp) {
-            return handleResponse(
-                res,
-                400,
-                "Phone and OTP are required"
-            );
-        }
-
-        const customer = await Customer.findOne({
-            phone,
-            otp,
-            otpExpiry: { $gt: Date.now() },
+        const payload = validateSchema(verifyOtpSchema, req.body || {});
+        const customer = await verifyCustomerOtpCode({
+            rawPhone: payload.phone,
+            otp: payload.otp,
+            ipAddress: req.ip,
         });
-
-        if (!customer) {
-            return handleResponse(
-                res,
-                400,
-                "Invalid or expired OTP"
-            );
-        }
-
-        customer.isVerified = true;
-        customer.otp = undefined;
-        customer.otpExpiry = undefined;
-        customer.lastLogin = new Date();
-
-        await customer.save();
-
         const token = generateToken(customer);
 
         return handleResponse(
@@ -160,11 +79,11 @@ export const verifyCustomerOTP = async (req, res) => {
             "Login successful",
             {
                 token,
-                customer,
+                customer: sanitizeCustomer(customer),
             }
         );
     } catch (error) {
-        return handleResponse(res, 500, error.message);
+        return handleResponse(res, error.statusCode || 500, error.message);
     }
 };
 

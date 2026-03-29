@@ -287,7 +287,10 @@ export function calculateRiderPayout(distanceKm, deliverySettings) {
   };
 }
 
-export async function hydrateOrderItems(orderItems = []) {
+export async function hydrateOrderItems(
+  orderItems = [],
+  { session = null, enforceServerPricing = true } = {},
+) {
   if (!Array.isArray(orderItems) || orderItems.length === 0) {
     return [];
   }
@@ -296,9 +299,11 @@ export async function hydrateOrderItems(orderItems = []) {
     .map((item) => item.product || item.productId || item._id || item.id)
     .filter(Boolean);
 
-  const products = await Product.find({ _id: { $in: productIds } })
-    .select("_id name salePrice price mainImage headerId sellerId")
+  const productQuery = Product.find({ _id: { $in: productIds } })
+    .select("_id name salePrice price mainImage headerId sellerId status")
     .lean();
+  if (session) productQuery.session(session);
+  const products = await productQuery;
 
   const productMap = new Map(products.map((product) => [String(product._id), product]));
 
@@ -308,11 +313,15 @@ export async function hydrateOrderItems(orderItems = []) {
     if (!product) {
       throw new Error(`Product not found for line item: ${productId}`);
     }
+    if (product.status !== "active") {
+      throw new Error(`Product is not available for purchase: ${product.name}`);
+    }
 
     const quantity = normalizeLineQuantity(item.quantity);
-    const inferredUnitPrice =
-      normalizeLinePrice(item.price) ||
-      normalizeLinePrice(product.salePrice || product.price);
+    const serverUnitPrice = normalizeLinePrice(product.salePrice || product.price);
+    const inferredUnitPrice = enforceServerPricing
+      ? serverUnitPrice
+      : normalizeLinePrice(item.price) || serverUnitPrice;
 
     return {
       productId,
@@ -334,10 +343,11 @@ export async function generateOrderPaymentBreakdown({
   taxTotal = 0,
   deliverySettings,
   handlingFeeStrategy,
+  session = null,
 }) {
   const normalizedItems = Array.isArray(preHydratedItems) && preHydratedItems.length > 0
     ? preHydratedItems
-    : await hydrateOrderItems(items);
+    : await hydrateOrderItems(items, { session, enforceServerPricing: true });
   if (normalizedItems.length === 0) {
     throw new Error("Cart is empty");
   }
@@ -351,11 +361,13 @@ export async function generateOrderPaymentBreakdown({
     new Set(normalizedItems.map((item) => item.headerCategoryId).filter(Boolean)),
   );
 
-  const categories = await Category.find({ _id: { $in: headerIds } })
+  const categoryQuery = Category.find({ _id: { $in: headerIds } })
     .select(
       "_id name adminCommission adminCommissionType adminCommissionValue adminCommissionFixedRule handlingFees handlingFeeType handlingFeeValue",
     )
     .lean();
+  if (session) categoryQuery.session(session);
+  const categories = await categoryQuery;
   const categoryById = new Map(categories.map((category) => [String(category._id), category]));
 
   const effectiveSettings =

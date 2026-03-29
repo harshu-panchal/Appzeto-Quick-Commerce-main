@@ -7,10 +7,15 @@ import {
   parseCustomerCoordinates,
   getNearbySellerIdsForCustomer,
 } from "../services/customerVisibilityService.js";
+import {
+  enqueueProductIndex,
+  enqueueProductRemoval,
+} from "../services/searchSyncService.js";
 
 function isCustomerVisibilityRequest(req) {
   const role = String(req.user?.role || "").toLowerCase();
-  return !role || role === "customer" || role === "user";
+  // Admin and seller should not be subject to location filtering
+  return !role || (role !== "admin" && role !== "seller" && role !== "delivery");
 }
 
 function parseSellerIdFilters({ sellerId, sellerIds }) {
@@ -29,11 +34,25 @@ function parseSellerIdFilters({ sellerId, sellerIds }) {
   return [];
 }
 
+function makeProductSku(name, index = 1) {
+  const prefix = String(name || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "")
+    .slice(0, 5) || "item";
+  return `${prefix}-${String(index).padStart(3, "0")}`;
+}
+
 /* ===============================
    GET ALL PRODUCTS (Public/Admin)
 ================================ */
 export const getProducts = async (req, res) => {
   try {
+    // Debug logging
+    console.log('=== GET PRODUCTS REQUEST ===');
+    console.log('User:', req.user);
+    console.log('User Role:', req.user?.role);
+    console.log('Query params:', req.query);
+    
     const {
       search,
       category,
@@ -47,10 +66,14 @@ export const getProducts = async (req, res) => {
       headerId,
       categoryIds,
       sellerIds,
+      sort,
       lat,
       lng,
     } = req.query;
     const enforceRadius = isCustomerVisibilityRequest(req);
+    
+    console.log('Enforce Radius:', enforceRadius);
+    console.log('===========================');
 
     const query = {};
     if (search) {
@@ -70,6 +93,7 @@ export const getProducts = async (req, res) => {
     const coords = parseCustomerCoordinates({ lat, lng });
     const shouldApplyLocationFilter = enforceRadius || coords.valid;
     if (enforceRadius && !coords.valid) {
+      console.log('❌ Blocking request - enforceRadius is true but coords invalid');
       return handleResponse(
         res,
         400,
@@ -145,15 +169,27 @@ export const getProducts = async (req, res) => {
       maxLimit: 100,
     });
 
+    const sortMap = {
+      newest: { createdAt: -1 },
+      oldest: { createdAt: 1 },
+      "name-asc": { name: 1, createdAt: -1 },
+      "name-desc": { name: -1, createdAt: -1 },
+      "price-asc": { price: 1, createdAt: -1 },
+      "price-desc": { price: -1, createdAt: -1 },
+      "stock-asc": { stock: 1, createdAt: -1 },
+      "stock-desc": { stock: -1, createdAt: -1 },
+    };
+    const sortQuery = sortMap[String(sort || "newest").toLowerCase()] || sortMap.newest;
+
     const products = await Product.find(query)
       .select(
-        "name slug price salePrice stock brand weight mainImage headerId categoryId subcategoryId sellerId status isFeatured createdAt",
+        "name slug description sku price salePrice stock brand weight mainImage galleryImages headerId categoryId subcategoryId sellerId status isFeatured variants createdAt",
       )
       .populate("headerId", "name")
       .populate("categoryId", "name")
       .populate("subcategoryId", "name")
       .populate("sellerId", "shopName")
-      .sort({ createdAt: -1 })
+      .sort(sortQuery)
       .skip(skip)
       .limit(limit)
       .lean();
@@ -178,7 +214,7 @@ export const getProducts = async (req, res) => {
 export const getSellerProducts = async (req, res) => {
   try {
     const sellerId = req.user.id;
-    const { stockStatus } = req.query;
+    const { stockStatus, sort } = req.query;
     const { page, limit, skip } = getPagination(req, {
       defaultLimit: 20,
       maxLimit: 100,
@@ -191,15 +227,27 @@ export const getSellerProducts = async (req, res) => {
       query.stock = 0;
     }
 
+    const sortMap = {
+      newest: { createdAt: -1 },
+      oldest: { createdAt: 1 },
+      "name-asc": { name: 1, createdAt: -1 },
+      "name-desc": { name: -1, createdAt: -1 },
+      "price-asc": { price: 1, createdAt: -1 },
+      "price-desc": { price: -1, createdAt: -1 },
+      "stock-asc": { stock: 1, createdAt: -1 },
+      "stock-desc": { stock: -1, createdAt: -1 },
+    };
+    const sortQuery = sortMap[String(sort || "newest").toLowerCase()] || sortMap.newest;
+
     const products = await Product.find(query)
       .select(
-        "name slug price salePrice stock brand weight mainImage headerId categoryId subcategoryId sellerId status isFeatured createdAt",
+        "name slug description sku price salePrice stock brand weight mainImage galleryImages headerId categoryId subcategoryId sellerId status isFeatured variants createdAt",
       )
       .populate("headerId", "name")
       .populate("categoryId", "name")
       .populate("subcategoryId", "name")
       .populate("sellerId", "shopName")
-      .sort({ createdAt: -1 })
+      .sort(sortQuery)
       .skip(skip)
       .limit(limit)
       .lean();
@@ -231,6 +279,16 @@ export const createProduct = async (req, res) => {
       productData.slug = slugify(productData.name);
     } else {
       productData.slug = slugify(productData.slug);
+    }
+
+    productData.description =
+      typeof productData.description === "string"
+        ? productData.description.trim()
+        : productData.description || "";
+
+    // Auto-generate product SKU if missing
+    if (!productData.sku || String(productData.sku).trim() === "") {
+      productData.sku = makeProductSku(productData.name, 1);
     }
 
     // Handle Images
@@ -266,7 +324,21 @@ export const createProduct = async (req, res) => {
       }
     }
 
+    if (Array.isArray(productData.variants)) {
+      productData.variants = productData.variants.map((variant, idx) => ({
+        ...variant,
+        sku:
+          variant?.sku && String(variant.sku).trim()
+            ? variant.sku
+            : makeProductSku(productData.name, idx + 1),
+      }));
+    }
+
     const product = await Product.create(productData);
+    
+    // Enqueue search indexing asynchronously
+    await enqueueProductIndex(product._id.toString());
+    
     return handleResponse(res, 201, "Product created successfully", product);
   } catch (error) {
     console.error("Create Product Error:", error);
@@ -301,6 +373,18 @@ export const updateProduct = async (req, res) => {
       } else {
         productData.slug = slugify(productData.slug);
       }
+    }
+
+    if (productData.description !== undefined) {
+      productData.description =
+        typeof productData.description === "string"
+          ? productData.description.trim()
+          : productData.description || "";
+    }
+
+    const skuBaseName = productData.name || product.name;
+    if (!productData.sku || String(productData.sku).trim() === "") {
+      productData.sku = product.sku || makeProductSku(skuBaseName, 1);
     }
 
     // Handle Images
@@ -349,11 +433,24 @@ export const updateProduct = async (req, res) => {
       }
     }
 
+    if (Array.isArray(productData.variants)) {
+      productData.variants = productData.variants.map((variant, idx) => ({
+        ...variant,
+        sku:
+          variant?.sku && String(variant.sku).trim()
+            ? variant.sku
+            : makeProductSku(skuBaseName, idx + 1),
+      }));
+    }
+
     const updatedProduct = await Product.findByIdAndUpdate(
       id,
       { $set: productData },
       { new: true, runValidators: true },
     );
+    
+    // Enqueue search indexing asynchronously
+    await enqueueProductIndex(id);
 
     return handleResponse(
       res,
@@ -397,6 +494,9 @@ export const deleteProduct = async (req, res) => {
     if (!product) {
       return handleResponse(res, 404, "Product not found or unauthorized");
     }
+    
+    // Enqueue search index removal asynchronously
+    await enqueueProductRemoval(id);
 
     return handleResponse(res, 200, "Product deleted successfully");
   } catch (error) {

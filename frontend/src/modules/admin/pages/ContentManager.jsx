@@ -12,10 +12,8 @@ import {
     HiOutlineArrowUpCircle,
     HiOutlineArrowDownCircle,
     HiOutlineDevicePhoneMobile,
-    HiOutlineEye,
     HiOutlineLink,
     HiOutlineSparkles,
-    HiOutlineMegaphone,
     HiOutlineXMark
 } from 'react-icons/hi2';
 import { cn } from '@/lib/utils';
@@ -70,6 +68,13 @@ const ContentManager = () => {
         () => headerCategories.find(h => h._id === selectedHeaderId) || null,
         [headerCategories, selectedHeaderId]
     );
+
+    const availableCategories = useMemo(() => {
+        if (pageType === 'home') {
+            return headerCategories.flatMap((header) => header.children || []);
+        }
+        return selectedHeader?.children || [];
+    }, [headerCategories, pageType, selectedHeader]);
 
     const loadHeaderCategories = async () => {
         try {
@@ -245,9 +250,9 @@ const ContentManager = () => {
                 return;
             }
             config = {
-                maxItems: formData.maxCategories,
+                maxItems: Number(formData.maxCategories) || 1,
                 categoryIds: formData.categoryIds,
-                rows: formData.categoryRows || 1,
+                rows: Number(formData.categoryRows) || 1,
             };
         } else if (displayType === 'subcategories') {
             if (!formData.subCategoryCategoryIds?.length || !formData.subCategoryIds?.length) {
@@ -257,15 +262,15 @@ const ContentManager = () => {
             config = {
                 categoryIds: formData.subCategoryCategoryIds,
                 subcategoryIds: formData.subCategoryIds,
-                rows: formData.subCategoryRows || 1,
+                rows: Number(formData.subCategoryRows) || 1,
             };
         } else if (displayType === 'products') {
             config = {
                 categoryIds: formData.productCategoryIds,
                 subcategoryIds: formData.productSubCategoryIds,
                 productIds: formData.productIds,
-                rows: formData.singleRowScrollable ? 1 : (formData.productRows || 1),
-                columns: formData.productColumns || 2,
+                rows: formData.singleRowScrollable ? 1 : (Number(formData.productRows) || 1),
+                columns: Number(formData.productColumns) || 2,
                 singleRowScrollable: !!formData.singleRowScrollable,
             };
         }
@@ -368,13 +373,9 @@ const ContentManager = () => {
                         Experience Studio
                         <div className="h-2 w-2 rounded-full bg-primary animate-pulse" />
                     </h1>
-                    <p className="ds-description">Visual orchestrator for your customer-facing mobile application.</p>
+                    <p className="ds-description">Add and arrange the banners, categories, and products that show in the app.</p>
                 </div>
                 <div className="flex items-center gap-3">
-                    <button className="flex items-center gap-2 px-5 py-3 bg-white text-slate-700 rounded-2xl text-[10px] font-black border border-slate-200 hover:bg-slate-50 transition-all">
-                        <HiOutlineEye className="h-4 w-4" />
-                        PREVIEW APP
-                    </button>
                     <button
                         onClick={openCreateModal}
                         className="flex items-center gap-2 px-6 py-3 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl hover:scale-105 transition-all"
@@ -386,7 +387,7 @@ const ContentManager = () => {
             </div>
 
             <p className="mt-3 text-xs text-slate-500 max-w-2xl">
-                <strong>Hero banners and categories</strong> at the top of each page are configured separately in &quot;Hero & categories per page&quot; in the sidebar. The sections below are for the main content area only (banners, categories, products, etc.).
+                <strong>Top banners and page categories</strong> are set in &quot;Hero & categories per page&quot; in the sidebar. Use this page to manage the main content below them, like banners, categories, and products.
             </p>
 
             {/* Scope selectors */}
@@ -425,9 +426,9 @@ const ContentManager = () => {
             </div>
 
             {/* Canvas Area */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+            <div className="grid grid-cols-1 gap-4">
                 {/* Visual Editor */}
-                <div className="lg:col-span-8 space-y-6">
+                <div className="space-y-6">
                     {/* Section list */}
                     <div className="space-y-4">
                         <div className="flex items-center justify-between px-2">
@@ -529,85 +530,6 @@ const ContentManager = () => {
                             })}
                         </div>
                     </div>
-                </div>
-
-                {/* Mobile Device Mockup */}
-                <div className="lg:col-span-4 sticky top-4">
-                    <div className="relative mx-auto border-[8px] border-slate-900 rounded-[3rem] h-[650px] w-[320px] shadow-2xl overflow-hidden bg-white ring-8 ring-slate-100">
-                        {/* Notch */}
-                        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-32 h-6 bg-slate-900 rounded-b-2xl z-20" />
-
-                        {/* Mock App Content */}
-                        <div className="h-full overflow-y-auto pt-8 pb-20 no-scrollbar">
-                            <div className="p-4 flex items-center justify-between mb-4">
-                                <div className="h-10 w-10 rounded-full bg-slate-100 border border-slate-200" />
-                                <div className="h-4 w-24 bg-slate-50 rounded-full" />
-                                <div className="h-10 w-10 flex items-center justify-center text-slate-300">
-                                    <HiOutlineSparkles className="h-6 w-6" />
-                                </div>
-                            </div>
-
-                            {/* Live Hero Banner Preview (uses first banner section if present) */}
-                            <div className="px-4 mb-6">
-                                {sections.find(s => s.displayType === 'banners') ? (
-                                    <div className="h-40 rounded-xl overflow-hidden shadow-lg relative">
-                                        <img
-                                            src={sections.find(s => s.displayType === 'banners')?.config?.banners?.items?.[0]?.imageUrl}
-                                            alt=""
-                                            className="h-full w-full object-cover"
-                                        />
-                                        <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent flex flex-col justify-end p-4">
-                                            <h4 className="text-white font-black text-sm">
-                                                {sections.find(s => s.displayType === 'banners')?.title ||
-                                                    sections.find(s => s.displayType === 'banners')?.config?.banners?.items?.[0]?.title}
-                                            </h4>
-                                        </div>
-                                    </div>
-                                ) : (
-                                    <div className="h-40 rounded-xl overflow-hidden shadow-lg relative bg-slate-100 flex items-center justify-center">
-                                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">
-                                            No banner section configured yet
-                                        </span>
-                                    </div>
-                                )}
-                            </div>
-
-                            {/* Categories Mock */}
-                            <div className="px-4 grid grid-cols-4 gap-3 mb-8">
-                                {[1, 2, 3, 4].map(i => (
-                                    <div key={i} className="space-y-2">
-                                        <div className="aspect-square rounded-2xl bg-slate-50 border border-slate-100" />
-                                        <div className="h-2 w-full bg-slate-50 rounded-full" />
-                                    </div>
-                                ))}
-                            </div>
-
-                            {/* Deal Mock */}
-                            <div className="px-4">
-                                <div className="bg-rose-50 rounded-xl p-4 border border-rose-100">
-                                    <div className="flex items-center justify-between mb-3">
-                                        <h5 className="text-[10px] font-black text-rose-600 uppercase">Flash Sales</h5>
-                                        <div className="flex gap-1">
-                                            {[1, 2, 3].map(i => <div key={i} className="h-4 w-4 bg-rose-200 rounded" />)}
-                                        </div>
-                                    </div>
-                                    <div className="flex gap-3">
-                                        <div className="h-20 w-20 bg-white rounded-2xl shadow-sm ring-1 ring-rose-100" />
-                                        <div className="flex-1 pt-2 space-y-2">
-                                            <div className="h-3 w-2/3 bg-rose-100 rounded-full" />
-                                            <div className="h-2 w-1/3 bg-rose-100 rounded-full" />
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* App Bottom Nav */}
-                        <div className="absolute bottom-0 inset-x-0 h-16 bg-white/80 backdrop-blur-md border-t border-slate-100 flex items-center justify-around px-4">
-                            {[1, 2, 3, 4].map(i => <div key={i} className="h-6 w-6 rounded-lg bg-slate-100" />)}
-                        </div>
-                    </div>
-                    <p className="text-center text-[10px] font-black text-slate-400 uppercase tracking-widest mt-6">LIVE APP OVERVIEW</p>
                 </div>
             </div>
 
@@ -779,13 +701,13 @@ const ContentManager = () => {
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="space-y-2">
                                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                                        Number of categories
+                                        Categories to show
                                     </label>
                                     <input
                                         type="number"
                                         min={1}
-                                        value={formData.maxCategories}
-                                        onChange={(e) => setFormData(prev => ({ ...prev, maxCategories: Number(e.target.value) || 1 }))}
+                                        value={formData.maxCategories ?? ''}
+                                        onChange={(e) => setFormData(prev => ({ ...prev, maxCategories: e.target.value === '' ? '' : Number(e.target.value) }))}
                                         className="w-full p-3 bg-slate-50 rounded-2xl text-xs font-bold border-none outline-none"
                                     />
                                 </div>
@@ -796,18 +718,18 @@ const ContentManager = () => {
                                     <input
                                         type="number"
                                         min={1}
-                                        value={formData.categoryRows}
-                                        onChange={(e) => setFormData(prev => ({ ...prev, categoryRows: Number(e.target.value) || 1 }))}
+                                        value={formData.categoryRows ?? ''}
+                                        onChange={(e) => setFormData(prev => ({ ...prev, categoryRows: e.target.value === '' ? '' : Number(e.target.value) }))}
                                         className="w-full p-3 bg-slate-50 rounded-2xl text-xs font-bold border-none outline-none"
                                     />
                                 </div>
                             </div>
                             <div className="space-y-2">
                                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                                    Categories under this header
+                                    Choose categories to show
                                 </label>
                                 <div className="flex flex-wrap gap-2">
-                                    {(selectedHeader?.children || []).map(c => {
+                                    {availableCategories.map(c => {
                                         const isSelected = formData.categoryIds.includes(c._id);
                                         return (
                                             <button
@@ -834,7 +756,7 @@ const ContentManager = () => {
                                     })}
                                 </div>
                                 <p className="text-[10px] text-slate-400">
-                                    These categories will be rendered in 4-column grids per row.
+                                    Pick the categories you want to show. One row displays 4 categories.
                                 </p>
                             </div>
                         </div>
@@ -934,8 +856,8 @@ const ContentManager = () => {
                                 <input
                                     type="number"
                                     min={1}
-                                    value={formData.subCategoryRows}
-                                    onChange={(e) => setFormData(prev => ({ ...prev, subCategoryRows: Number(e.target.value) || 1 }))}
+                                    value={formData.subCategoryRows ?? ''}
+                                    onChange={(e) => setFormData(prev => ({ ...prev, subCategoryRows: e.target.value === '' ? '' : Number(e.target.value) }))}
                                     className="w-full p-3 bg-slate-50 rounded-2xl text-xs font-bold border-none outline-none"
                                 />
                             </div>
@@ -953,8 +875,8 @@ const ContentManager = () => {
                                         type="number"
                                         min={1}
                                         disabled={formData.singleRowScrollable}
-                                        value={formData.productRows}
-                                        onChange={(e) => setFormData(prev => ({ ...prev, productRows: Number(e.target.value) || 1 }))}
+                                        value={formData.productRows ?? ''}
+                                        onChange={(e) => setFormData(prev => ({ ...prev, productRows: e.target.value === '' ? '' : Number(e.target.value) }))}
                                         className="w-full p-3 bg-slate-50 rounded-2xl text-xs font-bold border-none outline-none"
                                     />
                                 </div>
@@ -965,8 +887,8 @@ const ContentManager = () => {
                                     <input
                                         type="number"
                                         min={1}
-                                        value={formData.productColumns}
-                                        onChange={(e) => setFormData(prev => ({ ...prev, productColumns: Number(e.target.value) || 1 }))}
+                                        value={formData.productColumns ?? ''}
+                                        onChange={(e) => setFormData(prev => ({ ...prev, productColumns: e.target.value === '' ? '' : Number(e.target.value) }))}
                                         className="w-full p-3 bg-slate-50 rounded-2xl text-xs font-bold border-none outline-none"
                                     />
                                 </div>

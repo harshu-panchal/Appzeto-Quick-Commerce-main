@@ -27,15 +27,20 @@ const CategoriesPage = () => {
                 const tree = res.data.results || res.data.result || [];
                 const formattedGroups = tree
                     .filter((header) => (header.name || '').trim().toLowerCase() !== 'all')
-                    .map((header, idx) => ({
-                    title: header.name,
-                    categories: (header.children || []).map((cat, cIdx) => ({
-                        id: cat._id,
-                        name: cat.name,
-                        image: cat.image || "https://cdn.grofers.com/cdn-cgi/image/f=auto,fit=scale-down,q=70,metadata=none,w=270/layout-engine/2022-11/Slice-1_9.png",
-                        color: COLORS[(idx + cIdx) % COLORS.length]
-                    }))
-                }));
+                    .map((header, idx) => {
+                        const categories = (header.children || []).map((cat, cIdx) => ({
+                            id: cat._id,
+                            name: cat.name,
+                            image: cat.image || "https://cdn.grofers.com/cdn-cgi/image/f=auto,fit=scale-down,q=70,metadata=none,w=270/layout-engine/2022-11/Slice-1_9.png",
+                            color: COLORS[(idx + cIdx) % COLORS.length]
+                        }));
+
+                        return {
+                            title: header.name,
+                            categories,
+                        };
+                    })
+                    .filter((group) => group.categories.length > 0);
                 setGroups(formattedGroups);
             }
         } catch (error) {

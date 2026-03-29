@@ -35,6 +35,30 @@ const sellerSchema = new mongoose.Schema(
       trim: true,
     },
 
+    category: {
+      type: String,
+      trim: true,
+    },
+
+    description: {
+      type: String,
+      trim: true,
+    },
+
+    address: {
+      type: String,
+      trim: true,
+    },
+
+    documents: {
+      tradeLicense: { type: String, trim: true },
+      gstCertificate: { type: String, trim: true },
+      idProof: { type: String, trim: true },
+      businessRegistration: { type: String, trim: true },
+      fssaiLicense: { type: String, trim: true },
+      other: { type: String, trim: true },
+    },
+
     role: {
       type: String,
       default: "seller",
@@ -45,9 +69,29 @@ const sellerSchema = new mongoose.Schema(
       default: false,
     },
 
+    applicationStatus: {
+      type: String,
+      enum: ["pending", "approved", "rejected"],
+      default: "pending",
+    },
+
+    reviewedAt: {
+      type: Date,
+    },
+
+    reviewedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Admin",
+    },
+
+    rejectionReason: {
+      type: String,
+      trim: true,
+    },
+
     isActive: {
       type: Boolean,
-      default: true,
+      default: false,
     },
     location: {
       type: {

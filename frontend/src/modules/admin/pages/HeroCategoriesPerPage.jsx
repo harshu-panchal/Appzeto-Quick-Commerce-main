@@ -212,7 +212,7 @@ export default function HeroCategoriesPerPage() {
         <p className="text-sm text-slate-500 mt-1">
           Configure the <strong>separate</strong> hero banners and categories strip at the top of each page.
           If a header page has no config, the storefront shows the home page hero and categories.
-          Content Manager sections are for the main content area only.
+          Create Sections are for the main content area only.
         </p>
       </div>
 
@@ -288,7 +288,7 @@ export default function HeroCategoriesPerPage() {
       </Card>
 
       <p className="mt-4 text-xs text-slate-400">
-        This is a <strong>separate</strong> hero section. Experience sections in Content Manager
+        This is a <strong>separate</strong> hero section. Experience sections in Create Sections
         are unchanged and used for the main content area below.
       </p>
 

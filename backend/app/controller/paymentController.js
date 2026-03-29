@@ -1,83 +1,99 @@
-import Razorpay from "razorpay";
-import crypto from "crypto";
 import handleResponse from "../utils/helper.js";
-import Order from "../models/order.js";
+import {
+  createPaymentOrderSchema,
+  validateSchema,
+  verifyPaymentClientSchema,
+} from "../validation/paymentValidation.js";
+import {
+  createPaymentOrderForOrderRef,
+  processRazorpayWebhook,
+  verifyClientPaymentCallback,
+} from "../services/paymentService.js";
 
-// Initialize Razorpay
-const razorpay = new Razorpay({
-    key_id: process.env.RAZORPAY_KEY_ID,
-    key_secret: process.env.RAZORPAY_KEY_SECRET,
-});
+function getCorrelationId(req) {
+  return String(
+    req.correlationId ||
+      req.headers["x-correlation-id"] ||
+      req.headers["x-request-id"] ||
+      "",
+  ).trim() || null;
+}
 
-/* ===============================
-   CREATE RAZORPAY ORDER
-================================ */
 export const createRazorpayOrder = async (req, res) => {
-    try {
-        const { amount, currency = "INR" } = req.body;
+  try {
+    const payload = validateSchema(createPaymentOrderSchema, req.body || {});
+    const idempotencyKey = String(req.headers["idempotency-key"] || "").trim() || null;
 
-        if (!amount) {
-            return handleResponse(res, 400, "Amount is required");
-        }
+    const { payment, gatewayOrder, duplicate } = await createPaymentOrderForOrderRef({
+      orderRef: payload.orderRef || payload.orderId,
+      userId: req.user?.id,
+      idempotencyKey,
+      correlationId: getCorrelationId(req),
+    });
 
-        const options = {
-            amount: Math.round(amount * 100), // amount in the smallest currency unit (paise)
-            currency,
-            receipt: `receipt_${Date.now()}`,
-        };
-
-        const order = await razorpay.orders.create(options);
-
-        return handleResponse(res, 200, "Razorpay order created", order);
-    } catch (error) {
-        console.error("Razorpay Order Error:", error);
-        return handleResponse(res, 500, error.message);
-    }
+    return handleResponse(
+      res,
+      duplicate ? 200 : 201,
+      duplicate ? "Existing payment attempt returned" : "Payment order created",
+      {
+        paymentId: payment._id,
+        publicOrderId: payment.publicOrderId,
+        gatewayOrderId: gatewayOrder.id,
+        gatewayName: payment.gatewayName,
+        amount: payment.amount,
+        currency: payment.currency,
+        status: payment.status,
+        attemptCount: payment.attemptCount,
+      },
+    );
+  } catch (error) {
+    return handleResponse(res, error.statusCode || 500, error.message);
+  }
 };
 
-/* ===============================
-   VERIFY PAYMENT SIGNATURE
-================================ */
 export const verifyPayment = async (req, res) => {
-    try {
-        const {
-            razorpay_order_id,
-            razorpay_payment_id,
-            razorpay_signature,
-            orderId // Our internal orderId (ORD...)
-        } = req.body;
+  try {
+    const payload = validateSchema(verifyPaymentClientSchema, req.body || {});
+    const verification = await verifyClientPaymentCallback({
+      orderRef: payload.orderRef || payload.orderId,
+      userId: req.user?.id,
+      gatewayOrderId: payload.razorpay_order_id,
+      gatewayPaymentId: payload.razorpay_payment_id,
+      gatewaySignature: payload.razorpay_signature,
+      correlationId: getCorrelationId(req),
+    });
 
-        const body = razorpay_order_id + "|" + razorpay_payment_id;
+    return handleResponse(res, 200, "Payment verification processed", {
+      signatureIsValid: verification.signatureIsValid,
+      paymentStatus: verification.status,
+      publicOrderId: verification.payment.publicOrderId,
+      gatewayOrderId: verification.payment.gatewayOrderId,
+      gatewayPaymentId: verification.payment.gatewayPaymentId,
+    });
+  } catch (error) {
+    return handleResponse(res, error.statusCode || 500, error.message);
+  }
+};
 
-        const expectedSignature = crypto
-            .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
-            .update(body.toString())
-            .digest("hex");
+export const handleRazorpayWebhook = async (req, res) => {
+  try {
+    const signature = req.headers["x-razorpay-signature"];
+    const eventId = String(req.headers["x-razorpay-event-id"] || "").trim() || null;
+    const rawBody = req.body;
 
-        const isAuthentic = expectedSignature === razorpay_signature;
-
-        if (isAuthentic) {
-            // Update order payment status
-            if (orderId) {
-                const order = await Order.findOne({ orderId });
-                if (order) {
-                    order.payment.status = "completed";
-                    order.payment.transactionId = razorpay_payment_id;
-                    await order.save();
-                }
-            }
-
-            return handleResponse(res, 200, "Payment verified successfully", {
-                signatureIsValid: true,
-                paymentId: razorpay_payment_id
-            });
-        } else {
-            return handleResponse(res, 400, "Payment verification failed", {
-                signatureIsValid: false
-            });
-        }
-    } catch (error) {
-        console.error("Payment Verification Error:", error);
-        return handleResponse(res, 500, error.message);
+    if (!Buffer.isBuffer(rawBody)) {
+      return handleResponse(res, 400, "Invalid webhook payload");
     }
+
+    const result = await processRazorpayWebhook({
+      rawBody,
+      signature,
+      eventId,
+      correlationId: getCorrelationId(req),
+    });
+
+    return handleResponse(res, 200, "Webhook processed", result);
+  } catch (error) {
+    return handleResponse(res, error.statusCode || 500, error.message);
+  }
 };

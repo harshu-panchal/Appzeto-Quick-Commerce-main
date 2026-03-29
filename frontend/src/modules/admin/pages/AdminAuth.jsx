@@ -9,7 +9,9 @@ import {
     Lock,
     User,
     ShieldCheck,
-    ArrowRight
+    ArrowRight,
+    Eye,
+    EyeOff
 } from 'lucide-react';
 import { toast } from 'sonner';
 import Lottie from 'lottie-react';
@@ -19,6 +21,7 @@ import { adminApi } from '../services/adminApi';
 const AdminAuth = () => {
     const [isLogin, setIsLogin] = useState(true);
     const [isLoading, setIsLoading] = useState(false);
+    const [showPassword, setShowPassword] = useState(false);
     const { login } = useAuth();
     const { settings } = useSettings();
     const navigate = useNavigate();
@@ -35,27 +38,53 @@ const AdminAuth = () => {
 
     const handleChange = (e) => {
         const { name, value } = e.target;
-        if (name === 'password') {
-            const cleaned = value.replace(/[^a-zA-Z0-9]/g, '').slice(0, 6);
-            setFormData({ ...formData, [name]: cleaned });
-        } else {
-            setFormData({ ...formData, [name]: value });
-        }
+        setFormData({ ...formData, [name]: value });
     };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        const pwd = (formData.password || '').trim();
-        if (!/^[a-zA-Z0-9]{6}$/.test(pwd)) {
-            toast.error('Password must be exactly 6 characters (digits or letters only).');
-            return;
-        }
         setIsLoading(true);
 
+        // Debug logging
+        console.log('=== FRONTEND LOGIN ATTEMPT ===');
+        console.log('Email:', formData.email);
+        console.log('Password:', formData.password);
+        console.log('Password Length:', formData.password?.length);
+        console.log('Is Login:', isLogin);
+        console.log('==============================');
+
+        // Only validate password complexity for signup, not login
+        if (!isLogin) {
+            const pwd = (formData.password || '').trim();
+            if (pwd.length < 10) {
+                toast.error('Password must be at least 10 characters long.');
+                setIsLoading(false);
+                return;
+            }
+            if (!/[a-z]/.test(pwd)) {
+                toast.error('Password must contain at least one lowercase letter.');
+                setIsLoading(false);
+                return;
+            }
+            if (!/[A-Z]/.test(pwd)) {
+                toast.error('Password must contain at least one uppercase letter.');
+                setIsLoading(false);
+                return;
+            }
+            if (!/[0-9]/.test(pwd)) {
+                toast.error('Password must contain at least one number.');
+                setIsLoading(false);
+                return;
+            }
+        }
+
         try {
+            console.log('Sending request to API...');
             const response = isLogin
                 ? await adminApi.login({ email: formData.email, password: formData.password })
                 : await adminApi.signup({ name: formData.name, email: formData.email, password: formData.password });
+
+            console.log('API Response:', response);
 
             const { token, admin } = response.data.result;
 
@@ -72,6 +101,8 @@ const AdminAuth = () => {
             toast.success(isLogin ? 'Welcome back, Administrator.' : 'Administrator Account Created.');
             navigate('/admin');
         } catch (error) {
+            console.error('Login error:', error);
+            console.error('Error response:', error.response?.data);
             toast.error(error.response?.data?.message || 'Authentication failed');
         } finally {
             setIsLoading(false);
@@ -163,17 +194,24 @@ const AdminAuth = () => {
                                         <Lock size={20} />
                                     </div>
                                     <input
-                                        type="password"
+                                        type={showPassword ? "text" : "password"}
                                         name="password"
                                         required
-                                        minLength={6}
-                                        maxLength={6}
+                                        minLength={10}
+                                        maxLength={128}
                                         autoComplete="current-password"
                                         value={formData.password}
                                         onChange={handleChange}
-                                        placeholder="6 digit / letter PIN"
-                                        className="w-full pl-14 pr-5 py-5 bg-[#f8f9ff] border-2 border-transparent rounded-[24px] text-sm font-bold text-gray-700 outline-none focus:bg-white focus:border-indigo-100 focus:ring-8 focus:ring-indigo-50/50 transition-all placeholder:text-gray-300"
+                                        placeholder="Password (min 10 chars)"
+                                        className="w-full pl-14 pr-14 py-5 bg-[#f8f9ff] border-2 border-transparent rounded-[24px] text-sm font-bold text-gray-700 outline-none focus:bg-white focus:border-indigo-100 focus:ring-8 focus:ring-indigo-50/50 transition-all placeholder:text-gray-300"
                                     />
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowPassword(!showPassword)}
+                                        className="absolute right-5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-indigo-600 transition-colors focus:outline-none"
+                                    >
+                                        {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                                    </button>
                                 </div>
 
                                 <button

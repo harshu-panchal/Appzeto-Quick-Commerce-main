@@ -39,6 +39,7 @@ export const AuthProvider = ({ children }) => {
 
     const currentRole = getCurrentRoleFromUrl();
     const [user, setUser] = useState(null);
+    const [isLoading, setIsLoading] = useState(true);
     const token = authData[currentRole];
     const isAuthenticated = !!token;
 
@@ -47,6 +48,7 @@ export const AuthProvider = ({ children }) => {
         const fetchProfile = async () => {
             if (token) {
                 try {
+                    setIsLoading(true);
                     // Use deduplicated fetch to avoid multiple simultaneous profile calls
                     const endpoint = `/${currentRole}/profile`;
                     const response = await getWithDedupe(endpoint, {}, { ttl: 5000 });
@@ -54,9 +56,13 @@ export const AuthProvider = ({ children }) => {
                 } catch (error) {
                     console.error('Failed to fetch profile:', error);
                     // If 401, axios interceptor will handle it
+                    setUser(null);
+                } finally {
+                    setIsLoading(false);
                 }
             } else {
                 setUser(null);
+                setIsLoading(false);
             }
         };
 
@@ -126,6 +132,7 @@ export const AuthProvider = ({ children }) => {
             token, // Added token to context
             role: currentRole,
             isAuthenticated,
+            isLoading,
             authData,
             login,
             logout,

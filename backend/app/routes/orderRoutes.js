@@ -34,7 +34,11 @@ import {
   getOrderRoute,
 } from "../controller/orderWorkflowController.js";
 // Assuming there's a middleware to verify customer token
-import { verifyToken, allowRoles } from "../middleware/authMiddleware.js";
+import {
+  verifyToken,
+  allowRoles,
+  requireApprovedSeller,
+} from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
@@ -67,6 +71,7 @@ router.post(
   "/:id/delivered",
   verifyToken,
   allowRoles("delivery", "admin", "seller"),
+  requireApprovedSeller,
   markOrderDeliveredAndSettle,
 );
 router.post(
@@ -77,7 +82,12 @@ router.post(
 );
 
 // Customer routes
-router.post("/place", verifyToken, placeOrder);
+router.post(
+  "/place",
+  verifyToken,
+  allowRoles("customer", "user", "admin"),
+  placeOrder,
+);
 router.get("/my-orders", verifyToken, getMyOrders);
 router.get("/details/:orderId", verifyToken, getOrderDetails);
 router.put("/cancel/:orderId", verifyToken, cancelOrder);
@@ -89,31 +99,42 @@ router.get(
   "/seller-orders",
   verifyToken,
   allowRoles("admin", "seller"),
+  requireApprovedSeller,
   getSellerOrders,
 );
-router.put("/status/:orderId", verifyToken, updateOrderStatus);
+router.put(
+  "/status/:orderId",
+  verifyToken,
+  allowRoles("admin", "seller"),
+  requireApprovedSeller,
+  updateOrderStatus,
+);
 router.get(
   "/seller-returns",
   verifyToken,
   allowRoles("admin", "seller"),
+  requireApprovedSeller,
   getSellerReturns,
 );
 router.put(
   "/returns/:orderId/approve",
   verifyToken,
   allowRoles("admin", "seller"),
+  requireApprovedSeller,
   approveReturnRequest,
 );
 router.put(
   "/returns/:orderId/reject",
   verifyToken,
   allowRoles("admin", "seller"),
+  requireApprovedSeller,
   rejectReturnRequest,
 );
 router.put(
   "/returns/:orderId/assign-delivery",
   verifyToken,
   allowRoles("admin", "seller"),
+  requireApprovedSeller,
   assignReturnDelivery,
 );
 
@@ -177,6 +198,7 @@ router.get(
   "/workflow/:orderId/route",
   verifyToken,
   allowRoles("customer", "user", "delivery", "seller", "admin"),
+  requireApprovedSeller,
   getOrderRoute,
 );
 

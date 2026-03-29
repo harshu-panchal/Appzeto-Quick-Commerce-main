@@ -34,6 +34,21 @@ import {
   orderMatchQueryFromRouteParam,
   orderMatchQueryFlexible,
 } from "../utils/orderLookup.js";
+import { createFinanceOrderSchema } from "../validation/financeValidation.js";
+import { placeOrderAtomic } from "../services/orderPlacementService.js";
+
+function validateWithJoi(schema, payload) {
+  const { error, value } = schema.validate(payload, {
+    abortEarly: false,
+    stripUnknown: true,
+  });
+  if (error) {
+    const err = new Error(error.details.map((item) => item.message).join("; "));
+    err.statusCode = 400;
+    throw err;
+  }
+  return value;
+}
 
 function normalizePaymentMode(value) {
   const raw = String(value || "").trim().toUpperCase();
@@ -122,190 +137,48 @@ function buildFallbackBreakdownFromPricing(pricing = {}) {
 ================================ */
 export const placeOrder = async (req, res) => {
   try {
-    const customerId = req.user.id;
-    const { address, payment, pricing, timeSlot, items, paymentMode: paymentModeRaw } =
-      req.body;
-
-    // 1. Generate unique Order ID
-    const orderId = `ORD${Date.now()}${Math.floor(Math.random() * 1000)}`;
-
-    // 2. Map items if provided, or fetch from cart if not
-    let orderItems = items;
-    if (!orderItems || orderItems.length === 0) {
-      const cart = await Cart.findOne({ customerId }).populate(
-        "items.productId",
-      );
-      if (!cart || cart.items.length === 0) {
-        return handleResponse(res, 400, "Cannot place order with empty cart");
-      }
-      orderItems = cart.items.map((item) => ({
-        product: item.productId._id,
-        name: item.productId.name,
-        quantity: item.quantity,
-        price: item.productId.salePrice || item.productId.price,
-        image: item.productId.mainImage,
-      }));
+    const customerId = req.user?.id;
+    if (!customerId) {
+      return handleResponse(res, 401, "Unauthorized");
     }
 
-    // 3. Find seller from products (taking the first item's seller for simplicity)
-    const firstProduct = await Product.findById(orderItems[0].product);
-    const sellerId = firstProduct ? firstProduct.sellerId : null;
-    console.log(
-      `Order Placement [${orderId}] - Found Seller ID: ${sellerId} from product: ${firstProduct?.name}`,
-    );
+    const { address, payment, pricing, timeSlot, items, paymentMode: paymentModeRaw, distanceKm } =
+      req.body || {};
 
-    // 3b. Normalize address.location so only valid numeric coords are stored
-    let normalizedAddress = { ...address };
-    if (address?.location) {
-      const { lat, lng } = address.location;
-      if (
-        typeof lat !== "number" ||
-        typeof lng !== "number" ||
-        !Number.isFinite(lat) ||
-        !Number.isFinite(lng)
-      ) {
-        normalizedAddress = { ...address, location: undefined };
-      }
-    }
-
-    const sellerMs = DEFAULT_SELLER_TIMEOUT_MS();
-    const pendingUntil = new Date(Date.now() + sellerMs);
-
-    const paymentMode =
-      normalizePaymentMode(paymentModeRaw) ||
-      normalizePaymentMode(payment?.paymentMode) ||
-      inferPaymentMode(payment) ||
-      "COD";
-
-    const paymentStatus =
-      paymentMode === "ONLINE"
-        ? ORDER_PAYMENT_STATUS.CREATED
-        : ORDER_PAYMENT_STATUS.PENDING_CASH_COLLECTION;
-
-    let breakdown = null;
-    try {
-      const hydratedItems = await hydrateOrderItems(orderItems);
-      const distanceKm = await deriveDistanceKm({
-        sellerId,
-        addressLocation: normalizedAddress?.location,
-      });
-      breakdown = await generateOrderPaymentBreakdown({
-        items: orderItems,
-        preHydratedItems: hydratedItems,
-        distanceKm,
-        discountTotal: pricing?.discount || 0,
-        taxTotal: pricing?.gst || 0,
-      });
-    } catch (e) {
-      console.warn(
-        "[placeOrder] finance breakdown failed, using pricing fallback:",
-        e?.message,
-      );
-      breakdown = buildFallbackBreakdownFromPricing(pricing);
-    }
-
-    const orderTotal = Number(pricing?.total ?? breakdown?.grandTotal ?? 0) || 0;
-
-    // 4. Create the order (v2 workflow)
-    const newOrder = new Order({
-      orderId,
-      customer: customerId,
-      seller: sellerId,
-      items: orderItems,
-      address: normalizedAddress,
-      paymentMode,
-      paymentStatus,
-      payment: {
-        ...(payment || {}),
-        method: paymentMode === "ONLINE" ? "online" : "cash",
-        status: payment?.status || "pending",
-      },
-      pricing: pricing || {},
+    const payload = validateWithJoi(createFinanceOrderSchema, {
+      items,
+      address,
+      distanceKm,
+      discountTotal: pricing?.discount || 0,
+      taxTotal: pricing?.gst || 0,
+      paymentMode:
+        normalizePaymentMode(paymentModeRaw) ||
+        normalizePaymentMode(payment?.paymentMode) ||
+        inferPaymentMode(payment) ||
+        "COD",
       timeSlot: timeSlot || "now",
-      status: "pending",
-      expiresAt: pendingUntil,
-      workflowVersion: 2,
-      workflowStatus: WORKFLOW_STATUS.SELLER_PENDING,
-      sellerPendingExpiresAt: pendingUntil,
-      settlementStatus: {
-        overall: "PENDING",
-        sellerPayout: "PENDING",
-        riderPayout: "PENDING",
-        adminEarningCredited: false,
-      },
     });
 
-    if (breakdown) {
-      freezeFinancialSnapshot(newOrder, breakdown);
-    }
-
-    await newOrder.save();
-
-    // 5. Create Transaction & Stock History (Simulating immediate sale for demo)
-    if (sellerId) {
-      // Create pending transaction
-      await Transaction.create({
-        user: sellerId,
-        userModel: "Seller",
-        order: newOrder._id,
-        type: "Order Payment",
-        amount: orderTotal,
-        status: "Pending",
-        reference: orderId,
-      });
-
-      // Log stock history for each item
-      for (const item of orderItems) {
-        await StockHistory.create({
-          product: item.product,
-          seller: sellerId,
-          type: "Sale",
-          quantity: -item.quantity,
-          note: `Order #${orderId}`,
-          order: newOrder._id,
-        });
-
-        // Deduct actual stock
-        await Product.findByIdAndUpdate(item.product, {
-          $inc: { stock: -item.quantity },
-        });
-      }
-
-      // Create notification for seller
-      const sellerNotif = await Notification.create({
-        recipient: sellerId,
-        recipientModel: "Seller",
-        title: "New Order Received!",
-        message: `You have received a new order #${orderId} for ₹${orderTotal}.`,
-        type: "order",
-        data: { orderId: newOrder.orderId, mongoOrderId: newOrder._id },
-      });
-      console.log(
-        `Order Placement [${orderId}] - Created Notification ID: ${sellerNotif._id} for Seller: ${sellerId}`,
-      );
-    } else {
-      console.warn(
-        `Order Placement [${orderId}] - WARNING: No Seller ID found, skipping notification.`,
-      );
-    }
-
-    // 6. Clear the customer's cart after order is placed
-    await Cart.findOneAndUpdate({ customerId }, { items: [] });
-
-    // Do not await: scheduling Bull jobs talks to Redis and can block indefinitely if Redis
-    // is down or unreachable — the client would never get 201 and checkout stays on "Processing".
-    // Seller timeout is still enforced by orderAutoCancelJob + processSellerTimeoutJob fallback.
-    void afterPlaceOrderV2(newOrder).catch((e) => {
-      console.warn("[placeOrder] afterPlaceOrderV2:", e.message);
+    const idempotencyKey = String(req.headers?.["idempotency-key"] || "").trim() || null;
+    const { order, duplicate } = await placeOrderAtomic({
+      customerId,
+      payload,
+      idempotencyKey,
     });
 
-    return handleResponse(res, 201, "Order placed successfully", newOrder);
+    return handleResponse(
+      res,
+      duplicate ? 200 : 201,
+      duplicate
+        ? "Duplicate request resolved using existing order"
+        : "Order placed successfully",
+      order,
+    );
   } catch (error) {
     console.error("Place Order Error:", error);
-    return handleResponse(res, 500, error.message);
+    return handleResponse(res, error.statusCode || 500, error.message);
   }
 };
-
 /* ===============================
    GET CUSTOMER ORDERS
 ================================ */
@@ -1594,3 +1467,4 @@ export const skipOrder = async (req, res) => {
     return handleResponse(res, 500, error.message);
   }
 };
+

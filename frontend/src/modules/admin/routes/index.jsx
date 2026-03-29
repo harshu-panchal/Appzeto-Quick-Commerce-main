@@ -115,7 +115,7 @@ const navItems = [
     icon: Sparkles,
     color: "amber",
     children: [
-      { label: "Content Manager", path: "/admin/experience-studio" },
+      { label: "Create Sections", path: "/admin/experience-studio" },
       { label: "Hero & categories per page", path: "/admin/hero-categories" },
       { label: "Send Notifications", path: "/admin/notifications" },
       { label: "Coupons & Promos", path: "/admin/coupons" },

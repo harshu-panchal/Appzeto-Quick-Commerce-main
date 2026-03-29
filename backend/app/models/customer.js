@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { normalizePhoneNumber } from "../utils/phone.js";
 
 const addressSchema = new mongoose.Schema({
     label: {
@@ -40,6 +41,7 @@ const userSchema = new mongoose.Schema(
             type: String,
             required: true,
             unique: true,
+            trim: true,
         },
 
         password: {
@@ -68,6 +70,38 @@ const userSchema = new mongoose.Schema(
             select: false,
         },
 
+        otpHash: {
+            type: String,
+            select: false,
+        },
+
+        otpExpiresAt: {
+            type: Date,
+            select: false,
+        },
+
+        otpFailedAttempts: {
+            type: Number,
+            default: 0,
+            select: false,
+        },
+
+        otpLockedUntil: {
+            type: Date,
+            select: false,
+        },
+
+        otpLastSentAt: {
+            type: Date,
+            select: false,
+        },
+
+        otpSessionVersion: {
+            type: Number,
+            default: 0,
+            select: false,
+        },
+
         addresses: [addressSchema],
 
         walletBalance: {
@@ -90,5 +124,12 @@ const userSchema = new mongoose.Schema(
 userSchema.index({ role: 1, isActive: 1 });
 userSchema.index({ email: 1 }, { unique: true, sparse: true });
 userSchema.index({ phone: 1 }, { unique: true });
+
+userSchema.pre("validate", function(next) {
+    if (this.phone) {
+        this.phone = normalizePhoneNumber(this.phone);
+    }
+    next();
+});
 
 export default mongoose.model("User", userSchema);

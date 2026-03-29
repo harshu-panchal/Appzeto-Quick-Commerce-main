@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import Button from "@shared/components/ui/Button";
 import Badge from "@shared/components/ui/Badge";
 import {
@@ -26,6 +26,18 @@ const AddProduct = () => {
   const [modalTab, setModalTab] = useState("general");
   const [isSaving, setIsSaving] = useState(false);
 
+  const makeSku = (name, index = 1) => {
+    const prefix =
+      String(name || "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, "")
+        .slice(0, 5) || "item";
+    return `${prefix}-${String(index).padStart(3, "0")}`;
+  };
+
+  const isAutoSku = (sku, name, index = 1) =>
+    String(sku || "").toLowerCase() === makeSku(name, index);
+
   const [formData, setFormData] = useState({
     name: "",
     slug: "",
@@ -47,7 +59,7 @@ const AddProduct = () => {
     variants: [
       {
         id: Date.now(),
-        name: "Default",
+        name: "",
         price: "",
         salePrice: "",
         stock: "",
@@ -58,6 +70,32 @@ const AddProduct = () => {
 
   const [dbCategories, setDbCategories] = useState([]);
   const [isLoadingCats, setIsLoadingCats] = useState(true);
+
+  useEffect(() => {
+    setFormData((prev) => {
+      if (!prev.name) return prev;
+
+      const nextSku =
+        !prev.sku || isAutoSku(prev.sku, prev.name, 1)
+          ? makeSku(prev.name, 1)
+          : prev.sku;
+
+      const nextVariants = prev.variants.map((variant, idx) => {
+        const variantIndex = idx + 1;
+        const shouldAuto =
+          !variant.sku || isAutoSku(variant.sku, prev.name, variantIndex);
+        return shouldAuto
+          ? { ...variant, sku: makeSku(prev.name, variantIndex) }
+          : variant;
+      });
+
+      const changed =
+        nextSku !== prev.sku ||
+        nextVariants.some((variant, idx) => variant !== prev.variants[idx]);
+
+      return changed ? { ...prev, sku: nextSku, variants: nextVariants } : prev;
+    });
+  }, [formData.name]);
 
   React.useEffect(() => {
     const fetchCats = async () => {
@@ -251,9 +289,26 @@ const AddProduct = () => {
                 </label>
                 <input
                   value={formData.name}
-                  onChange={(e) =>
-                    setFormData({ ...formData, name: e.target.value })
-                  }
+                  onChange={(e) => {
+                    const nextName = e.target.value;
+                    setFormData((prev) => ({
+                      ...prev,
+                      name: nextName,
+                      sku:
+                        !prev.sku || isAutoSku(prev.sku, prev.name, 1)
+                          ? makeSku(nextName, 1)
+                          : prev.sku,
+                      variants: prev.variants.map((variant, idx) => {
+                        const variantIndex = idx + 1;
+                        const shouldAuto =
+                          !variant.sku ||
+                          isAutoSku(variant.sku, prev.name, variantIndex);
+                        return shouldAuto
+                          ? { ...variant, sku: makeSku(nextName, variantIndex) }
+                          : variant;
+                      }),
+                    }));
+                  }}
                   className="w-full px-4 py-2.5 bg-slate-100 border-none rounded-md text-sm font-semibold outline-none ring-primary/5 focus:ring-2 transition-all"
                   placeholder="e.g. Premium Basmati Rice"
                 />
@@ -317,20 +372,20 @@ const AddProduct = () => {
                 </div>
                 <button
                   onClick={() =>
-                    setFormData({
-                      ...formData,
+                    setFormData((prev) => ({
+                      ...prev,
                       variants: [
-                        ...formData.variants,
+                        ...prev.variants,
                         {
                           id: Date.now(),
                           name: "",
                           price: "",
                           salePrice: "",
                           stock: "",
-                          sku: "",
+                          sku: makeSku(prev.name, prev.variants.length + 1),
                         },
                       ],
-                    })
+                    }))
                   }
                   className="flex items-center space-x-2 px-3 py-1.5 bg-primary/10 text-primary rounded-lg text-[10px] font-bold hover:bg-primary/20 transition-all">
                   <HiOutlineSquaresPlus className="h-4 w-4" />
@@ -350,11 +405,19 @@ const AddProduct = () => {
                       <input
                         value={variant.name}
                         onChange={(e) => {
-                          const newVariants = [...formData.variants];
-                          newVariants[index].name = e.target.value;
-                          setFormData({ ...formData, variants: newVariants });
+                          const nextValue = e.target.value;
+                          setFormData((prev) => {
+                            const newVariants = prev.variants.map((item, idx) => {
+                              if (idx !== index) return item;
+                              return { ...item, name: nextValue };
+                            });
+                            return {
+                              ...prev,
+                              variants: newVariants,
+                            };
+                          });
                         }}
-                        placeholder="e.g. 1kg Bag"
+                        placeholder="e.g. 1kg, 1 pack, 1 liter..."
                         className="w-full px-3 py-2 bg-white ring-1 ring-slate-200 border-none rounded-xl text-xs font-semibold outline-none focus:ring-2 focus:ring-primary/10"
                       />
                     </div>
@@ -417,7 +480,7 @@ const AddProduct = () => {
                           newVariants[index].sku = e.target.value;
                           setFormData({ ...formData, variants: newVariants });
                         }}
-                        placeholder="SKU-001"
+                        placeholder={makeSku(formData.name, index + 1)}
                         className="w-full px-3 py-2 bg-white ring-1 ring-slate-200 border-none rounded-xl text-xs font-mono font-bold outline-none focus:ring-2 focus:ring-primary/10"
                       />
                     </div>
@@ -425,10 +488,20 @@ const AddProduct = () => {
                       <button
                         onClick={() => {
                           if (formData.variants.length > 1) {
-                            const newVariants = formData.variants.filter(
-                              (_, i) => i !== index,
-                            );
-                            setFormData({ ...formData, variants: newVariants });
+                            setFormData((prev) => {
+                              const remaining = prev.variants
+                                .map((variant, idx) => ({ variant, oldIndex: idx + 1 }))
+                                .filter((item) => item.oldIndex !== index + 1)
+                                .map((item, newIdx) => {
+                                  const shouldAuto =
+                                    !item.variant.sku ||
+                                    isAutoSku(item.variant.sku, prev.name, item.oldIndex);
+                                  return shouldAuto
+                                    ? { ...item.variant, sku: makeSku(prev.name, newIdx + 1) }
+                                    : item.variant;
+                                });
+                              return { ...prev, variants: remaining };
+                            });
                           }
                         }}
                         className="p-2 text-slate-300 hover:text-rose-500 transition-colors">

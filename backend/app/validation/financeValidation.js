@@ -32,19 +32,16 @@ export const checkoutPreviewSchema = Joi.object({
 });
 
 export const createFinanceOrderSchema = checkoutPreviewSchema.keys({
+  items: Joi.array().items(orderItemSchema).min(1).optional(),
   paymentMode: Joi.string().valid("ONLINE", "COD").required(),
 });
 
 export const verifyOnlinePaymentSchema = Joi.object({
-  razorpay_order_id: Joi.string().allow("", null),
-  razorpay_payment_id: Joi.string().allow("", null),
-  razorpay_signature: Joi.string().allow("", null),
-  transactionId: Joi.string().allow("", null),
+  razorpay_order_id: Joi.string().trim().required(),
+  razorpay_payment_id: Joi.string().trim().required(),
+  razorpay_signature: Joi.string().trim().required(),
   paymentMeta: Joi.object().unknown(true).optional(),
-}).or(
-  "transactionId",
-  "razorpay_payment_id",
-);
+});
 
 export const codMarkCollectedSchema = Joi.object({
   amount: Joi.number().min(0.01).optional(),

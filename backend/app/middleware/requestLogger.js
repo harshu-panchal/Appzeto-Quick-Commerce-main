@@ -1,0 +1,69 @@
+import { getClientIp } from "./rateLimiter.js";
+import { v4 as uuidv4 } from "uuid";
+import logger from "../services/logger.js";
+import { incrementCounter, recordHistogram } from "../services/metrics.js";
+
+function shouldLogRequest(pathname = "") {
+  if (!pathname) return true;
+  return !pathname.startsWith("/health") && !pathname.startsWith("/metrics");
+}
+
+/**
+ * Middleware to extract or generate correlation ID and store in request context
+ */
+export function correlationIdMiddleware(req, res, next) {
+  // Extract correlation ID from header or generate new one
+  const correlationId = req.headers['x-correlation-id'] || 
+                        req.headers['x-request-id'] || 
+                        uuidv4();
+  
+  req.correlationId = correlationId;
+  
+  // Set response header
+  res.setHeader('X-Correlation-Id', correlationId);
+  
+  // Run the rest of the request in correlation context
+  logger.runWithCorrelationId(correlationId, () => {
+    next();
+  });
+}
+
+export function structuredRequestLogger(req, res, next) {
+  const start = req.requestStartedAt || Date.now();
+  
+  res.on("finish", () => {
+    if (!shouldLogRequest(req.path)) return;
+    
+    const durationMs = Date.now() - start;
+    const durationSeconds = durationMs / 1000;
+    
+    // Log request with structured logger
+    const logLevel = res.statusCode >= 500 ? 'error' : 
+                     res.statusCode >= 400 ? 'warn' : 'info';
+    
+    logger.log(logLevel, 'HTTP request completed', {
+      method: req.method,
+      path: req.originalUrl,
+      statusCode: res.statusCode,
+      duration: durationMs,
+      ip: getClientIp(req),
+      userId: req.user?.id || null,
+      userRole: req.user?.role || null,
+      userAgent: req.headers["user-agent"] || ""
+    });
+    
+    // Collect metrics
+    incrementCounter('http_requests_total', {
+      method: req.method,
+      path: req.route?.path || req.path || 'unknown',
+      status: res.statusCode
+    });
+    
+    recordHistogram('http_request_duration_seconds', durationSeconds, {
+      method: req.method,
+      path: req.route?.path || req.path || 'unknown'
+    });
+  });
+  
+  next();
+}

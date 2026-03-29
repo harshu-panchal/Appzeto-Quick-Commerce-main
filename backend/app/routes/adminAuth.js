@@ -1,5 +1,6 @@
 import express from "express";
 import {
+    bootstrapAdmin,
     signupAdmin,
     loginAdmin,
 } from "../controller/adminAuthController.js";
@@ -16,6 +17,10 @@ import {
     getDeliveryTransactions,
     settleTransaction,
     bulkSettleDelivery,
+    getActiveSellers,
+    getPendingSellers,
+    approveSellerApplication,
+    rejectSellerApplication,
     getSellerWithdrawals,
     getDeliveryWithdrawals,
     updateWithdrawalStatus,
@@ -41,11 +46,21 @@ import {
 } from "../controller/adminFinanceController.js";
 
 import { verifyToken, allowRoles } from "../middleware/authMiddleware.js";
+import {
+    adminBootstrapRateLimiter,
+    authRouteRateLimiter,
+    createContentLengthGuard,
+} from "../middleware/securityMiddlewares.js";
 
 const router = express.Router();
 
-router.post("/signup", signupAdmin);     // normally internal
-router.post("/login", loginAdmin);
+const smallAdminPayload = createContentLengthGuard(
+    parseInt(process.env.ADMIN_AUTH_MAX_PAYLOAD_BYTES || "20480", 10),
+    "Admin auth payload too large",
+);
+router.post("/bootstrap", adminBootstrapRateLimiter, smallAdminPayload, bootstrapAdmin);
+router.post("/signup", adminBootstrapRateLimiter, smallAdminPayload, signupAdmin);
+router.post("/login", authRouteRateLimiter, smallAdminPayload, loginAdmin);
 
 // Profile routes
 router.get(
@@ -132,6 +147,10 @@ router.put(
 router.get("/users", verifyToken, allowRoles("admin"), getUsers);
 router.get("/users/:id", verifyToken, allowRoles("admin"), getUserById);
 router.get("/sellers", verifyToken, allowRoles("admin"), getSellers);
+router.get("/sellers/active", verifyToken, allowRoles("admin"), getActiveSellers);
+router.get("/sellers/pending", verifyToken, allowRoles("admin"), getPendingSellers);
+router.patch("/sellers/approve/:id", verifyToken, allowRoles("admin"), approveSellerApplication);
+router.delete("/sellers/reject/:id", verifyToken, allowRoles("admin"), rejectSellerApplication);
 
 router.get(
     "/delivery-partners",

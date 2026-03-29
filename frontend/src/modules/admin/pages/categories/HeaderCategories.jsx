@@ -44,6 +44,14 @@ import ColorLensIcon from "@mui/icons-material/ColorLens";
 import BuildIcon from "@mui/icons-material/Build";
 import LuggageIcon from "@mui/icons-material/Luggage";
 
+const makeSlug = (value) =>
+  String(value || "")
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, "-")
+    .replace(/[^\w-]+/g, "")
+    .replace(/-+/g, "-");
+
 const HeaderCategories = () => {
   const [categories, setCategories] = useState([]);
   const [page, setPage] = useState(1);
@@ -67,8 +75,8 @@ const HeaderCategories = () => {
     type: "header",
     parentId: null,
     iconId: "",
-    adminCommission: 0,
-    handlingFees: 0,
+    adminCommission: "",
+    handlingFees: "",
     headerColor: "#FF1E1E",
   });
 
@@ -174,7 +182,12 @@ const HeaderCategories = () => {
       // Ensure type is always header
       data.append("type", "header");
       Object.keys(formData).forEach((key) => {
-        if (key !== "type") data.append(key, formData[key]);
+        if (key === "type") return;
+        if (key === "adminCommission" || key === "handlingFees") {
+          data.append(key, formData[key] === "" ? "0" : String(formData[key]));
+          return;
+        }
+        data.append(key, formData[key]);
       });
 
       if (imageFile) {
@@ -223,8 +236,8 @@ const HeaderCategories = () => {
       type: "header",
       parentId: null,
       iconId: "",
-      adminCommission: 0,
-      handlingFees: 0,
+      adminCommission: "",
+      handlingFees: "",
       headerColor: "#FF1E1E",
     });
     setImageFile(null);
@@ -242,8 +255,8 @@ const HeaderCategories = () => {
       type: "header",
       parentId: null,
       iconId: item.iconId || "",
-      adminCommission: item.adminCommission || 0,
-      handlingFees: item.handlingFees || 0,
+      adminCommission: item.adminCommission ?? "",
+      handlingFees: item.handlingFees ?? "",
       headerColor: item.headerColor || "#FF1E1E",
     });
     setPreviewUrl(item.image?.url || null);
@@ -586,7 +599,11 @@ const HeaderCategories = () => {
                     type="text"
                     value={formData.name}
                     onChange={(e) =>
-                      setFormData({ ...formData, name: e.target.value })
+                      setFormData({
+                        ...formData,
+                        name: e.target.value,
+                        slug: makeSlug(e.target.value),
+                      })
                     }
                     className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                     placeholder="e.g., Electronics"
@@ -600,10 +617,8 @@ const HeaderCategories = () => {
                   <input
                     type="text"
                     value={formData.slug}
-                    onChange={(e) =>
-                      setFormData({ ...formData, slug: e.target.value })
-                    }
-                    className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                    readOnly
+                    className="w-full px-3 py-2 rounded-lg border border-gray-300 bg-gray-50 text-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                     placeholder="e.g., electronics"
                   />
                 </div>
@@ -632,7 +647,7 @@ const HeaderCategories = () => {
                       type="number"
                       value={formData.adminCommission}
                       onChange={(e) =>
-                        setFormData({ ...formData, adminCommission: parseFloat(e.target.value) || 0 })
+                        setFormData({ ...formData, adminCommission: e.target.value })
                       }
                       className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                       placeholder="0"
@@ -648,7 +663,7 @@ const HeaderCategories = () => {
                       type="number"
                       value={formData.handlingFees}
                       onChange={(e) =>
-                        setFormData({ ...formData, handlingFees: parseFloat(e.target.value) || 0 })
+                        setFormData({ ...formData, handlingFees: e.target.value })
                       }
                       className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                       placeholder="0"

@@ -1,14 +1,7 @@
-import crypto from "crypto";
-import mongoose from "mongoose";
 import Order from "../models/order.js";
-import Cart from "../models/cart.js";
-import Product from "../models/product.js";
 import Seller from "../models/seller.js";
-import StockHistory from "../models/stockHistory.js";
 import handleResponse from "../utils/helper.js";
 import { distanceMeters } from "../utils/geoUtils.js";
-import { WORKFLOW_STATUS, DEFAULT_SELLER_TIMEOUT_MS } from "../constants/orderWorkflow.js";
-import { ORDER_PAYMENT_STATUS } from "../constants/finance.js";
 import {
   checkoutPreviewSchema,
   codMarkCollectedSchema,
@@ -22,14 +15,13 @@ import {
   hydrateOrderItems,
 } from "../services/finance/pricingService.js";
 import {
-  freezeFinancialSnapshot,
   handleCodOrderFinance,
-  handleOnlineOrderFinance,
   reconcileCodCash,
   settleDeliveredOrder,
 } from "../services/finance/orderFinanceService.js";
-import { afterPlaceOrderV2 } from "../services/orderWorkflowService.js";
+import { placeOrderAtomic } from "../services/orderPlacementService.js";
 import { orderMatchQueryFromRouteParam } from "../utils/orderLookup.js";
+import { verifyClientPaymentCallback } from "../services/paymentService.js";
 
 function validateWithJoi(schema, payload) {
   const { error, value } = schema.validate(payload, {
@@ -43,10 +35,6 @@ function validateWithJoi(schema, payload) {
     throw err;
   }
   return value;
-}
-
-function buildOrderId() {
-  return `ORD${Date.now()}${Math.floor(Math.random() * 1000)}`;
 }
 
 async function deriveDistanceKm({ sellerId, addressLocation, distanceKmHint }) {
@@ -74,34 +62,6 @@ async function deriveDistanceKm({ sellerId, addressLocation, distanceKmHint }) {
     Number(lng),
   );
   return Number((meters / 1000).toFixed(3));
-}
-
-function mapOrderItemsForPersistence(hydratedItems = []) {
-  return hydratedItems.map((item) => ({
-    product: item.productId,
-    name: item.productName,
-    quantity: item.quantity,
-    price: item.price,
-    image: item.image || "",
-  }));
-}
-
-function verifyRazorpaySignature(payload) {
-  const {
-    razorpay_order_id: orderId,
-    razorpay_payment_id: paymentId,
-    razorpay_signature: signature,
-  } = payload || {};
-  if (!orderId || !paymentId || !signature) return true;
-
-  const secret = process.env.RAZORPAY_KEY_SECRET;
-  if (!secret) {
-    throw new Error("Razorpay secret is not configured");
-  }
-
-  const body = `${orderId}|${paymentId}`;
-  const expected = crypto.createHmac("sha256", secret).update(body).digest("hex");
-  return expected === signature;
 }
 
 export const previewCheckoutFinance = async (req, res) => {
@@ -168,125 +128,31 @@ export const previewCheckoutFinance = async (req, res) => {
 };
 
 export const createOrderWithFinancialSnapshot = async (req, res) => {
-  const session = await mongoose.startSession();
   try {
     const customerId = req.user?.id;
-    const payload = validateWithJoi(createFinanceOrderSchema, req.body || {});
-
-    session.startTransaction();
-
-    const hydratedItems = await hydrateOrderItems(payload.items);
-    const sellerId = hydratedItems[0]?.sellerId;
-    const distanceKm = await deriveDistanceKm({
-      sellerId,
-      addressLocation: payload.address?.location,
-      distanceKmHint: payload.distanceKm,
-    });
-
-    const breakdown = await generateOrderPaymentBreakdown({
-      items: payload.items,
-      preHydratedItems: hydratedItems,
-      distanceKm,
-      discountTotal: payload.discountTotal,
-      taxTotal: payload.taxTotal,
-    });
-
-    const orderId = buildOrderId();
-    const pendingUntil = new Date(Date.now() + DEFAULT_SELLER_TIMEOUT_MS());
-    const paymentMode = payload.paymentMode || "COD";
-
-    const order = new Order({
-      orderId,
-      customer: customerId,
-      seller: sellerId,
-      items: mapOrderItemsForPersistence(hydratedItems),
-      address: payload.address,
-      paymentMode,
-      paymentStatus:
-        paymentMode === "ONLINE"
-          ? ORDER_PAYMENT_STATUS.CREATED
-          : ORDER_PAYMENT_STATUS.PENDING_CASH_COLLECTION,
-      payment: {
-        method: paymentMode === "ONLINE" ? "online" : "cash",
-        status: "pending",
-      },
-      status: "pending",
-      orderStatus: "pending",
-      timeSlot: payload.timeSlot || "now",
-      workflowVersion: 2,
-      workflowStatus: WORKFLOW_STATUS.SELLER_PENDING,
-      sellerPendingExpiresAt: pendingUntil,
-      expiresAt: pendingUntil,
-      settlementStatus: {
-        overall: "PENDING",
-        sellerPayout: "PENDING",
-        riderPayout: "PENDING",
-        adminEarningCredited: false,
-      },
-      distanceSnapshot: {
-        distanceKmActual: breakdown.distanceKmActual,
-        distanceKmRounded: breakdown.distanceKmRounded,
-      },
-      pricingSnapshot: {
-        deliverySettings: breakdown.snapshots?.deliverySettings || {},
-        categoryCommissionSettings:
-          breakdown.snapshots?.categoryCommissionSettings || [],
-        handlingFeeStrategy: breakdown.snapshots?.handlingFeeStrategy || null,
-        handlingCategoryUsed: breakdown.snapshots?.handlingCategoryUsed || {},
-      },
-    });
-
-    // Reserve stock at order creation so finance-enabled checkout stays consistent
-    // with legacy order placement behavior.
-    for (const item of hydratedItems) {
-      const updated = await Product.findOneAndUpdate(
-        {
-          _id: item.productId,
-          stock: { $gte: item.quantity },
-        },
-        { $inc: { stock: -item.quantity } },
-        { new: true, session },
-      );
-
-      if (!updated) {
-        throw new Error(`Insufficient stock for product: ${item.productName}`);
-      }
-
-      await StockHistory.create(
-        [
-          {
-            product: item.productId,
-            seller: sellerId,
-            type: "Sale",
-            quantity: -item.quantity,
-            note: `Order #${orderId}`,
-            order: order._id,
-          },
-        ],
-        { session },
-      );
+    if (!customerId) {
+      return handleResponse(res, 401, "Unauthorized");
     }
 
-    freezeFinancialSnapshot(order, breakdown);
-    await order.save({ session });
-    await Cart.findOneAndUpdate(
-      { customerId },
-      { items: [] },
-      { session },
-    );
+    const payload = validateWithJoi(createFinanceOrderSchema, req.body || {});
+    const idempotencyKey = String(req.headers["idempotency-key"] || "").trim() || null;
 
-    await session.commitTransaction();
-
-    void afterPlaceOrderV2(order).catch((error) => {
-      console.warn("[createOrderWithFinancialSnapshot] afterPlaceOrderV2:", error.message);
+    const { order, duplicate } = await placeOrderAtomic({
+      customerId,
+      payload,
+      idempotencyKey,
     });
 
-    return handleResponse(res, 201, "Order created with financial snapshot", order);
+    return handleResponse(
+      res,
+      duplicate ? 200 : 201,
+      duplicate
+        ? "Duplicate request resolved using existing order"
+        : "Order created with financial snapshot",
+      order,
+    );
   } catch (error) {
-    await session.abortTransaction();
     return handleResponse(res, error.statusCode || 500, error.message);
-  } finally {
-    session.endSession();
   }
 };
 
@@ -294,29 +160,21 @@ export const verifyOnlineOrderPayment = async (req, res) => {
   try {
     const { id } = req.params;
     const payload = validateWithJoi(verifyOnlinePaymentSchema, req.body || {});
-    const orderKey = orderMatchQueryFromRouteParam(id);
-    if (!orderKey) {
-      return handleResponse(res, 404, "Order not found");
-    }
-    const order = await Order.findOne(orderKey).select("_id orderId paymentMode").lean();
-    if (!order) {
-      return handleResponse(res, 404, "Order not found");
-    }
-
-    const validSignature = verifyRazorpaySignature(payload);
-    if (!validSignature) {
-      return handleResponse(res, 400, "Online payment verification failed");
-    }
-
-    const transactionId =
-      payload.transactionId || payload.razorpay_payment_id || "";
-    const updated = await handleOnlineOrderFinance(order._id, {
-      actorId: req.user?.id || null,
-      transactionId,
-      metadata: payload.paymentMeta || {},
+    const verification = await verifyClientPaymentCallback({
+      orderRef: id,
+      userId: req.user?.id,
+      gatewayOrderId: payload.razorpay_order_id,
+      gatewayPaymentId: payload.razorpay_payment_id,
+      gatewaySignature: payload.razorpay_signature,
+      correlationId: req.correlationId || null,
     });
 
-    return handleResponse(res, 200, "Online payment verified and applied", updated);
+    return handleResponse(res, 200, "Online payment verification processed", {
+      paymentStatus: verification.status,
+      publicOrderId: verification.payment.publicOrderId,
+      gatewayOrderId: verification.payment.gatewayOrderId,
+      gatewayPaymentId: verification.payment.gatewayPaymentId,
+    });
   } catch (error) {
     return handleResponse(res, error.statusCode || 500, error.message);
   }

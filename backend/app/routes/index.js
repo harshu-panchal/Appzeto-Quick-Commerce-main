@@ -17,11 +17,18 @@ import offerRoute from "./offerRoutes.js";
 import couponRoute from "./couponRoutes.js";
 import settingsRoute from "./settingsRoutes.js";
 import mapsRoute from "./mapsRoutes.js";
+import mediaRoute from "./mediaRoutes.js";
+import healthRoute from "./healthRoutes.js";
+import metricsRoute from "./metricsRoutes.js";
 
 import express from "express";
 
 const setupRoutes = (app) => {
     const router = express.Router();
+
+    // Health and metrics endpoints (no /api prefix for standard paths)
+    app.use("/health", healthRoute);
+    app.use("/metrics", metricsRoute);
 
     router.use("/customer", customerRoute);
     router.use("/delivery", deliveryRoute);
@@ -37,6 +44,7 @@ const setupRoutes = (app) => {
     router.use("/orders", orderRoute);
     router.use("/payments", paymentRoute);
     router.use("/maps", mapsRoute);
+    router.use("/media", mediaRoute);
     router.use("/", experienceRoute);
     router.use("/", offerRoute);
     router.use("/", couponRoute);

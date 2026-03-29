@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import Card from "@shared/components/ui/Card";
 import Badge from "@shared/components/ui/Badge";
+import Pagination from "@shared/components/ui/Pagination";
 import {
   Plus,
   Search,
@@ -17,12 +18,23 @@ import { motion, AnimatePresence } from "framer-motion";
 import { adminApi } from "../../services/adminApi";
 import { toast } from "sonner";
 
+const makeSlug = (value) =>
+  String(value || "")
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, "-")
+    .replace(/[^\w-]+/g, "")
+    .replace(/-+/g, "-");
+
 const Level2Categories = () => {
   const [categories, setCategories] = useState([]);
   const [headerCategories, setHeaderCategories] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterHeader, setFilterHeader] = useState("all");
+  const [sortBy, setSortBy] = useState("newest");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
@@ -64,7 +76,7 @@ const Level2Categories = () => {
   };
 
   const filteredCategories = useMemo(() => {
-    return categories.filter((cat) => {
+    const filtered = categories.filter((cat) => {
       const matchesSearch = cat.name
         .toLowerCase()
         .includes(searchTerm.toLowerCase());
@@ -74,7 +86,43 @@ const Level2Categories = () => {
         cat.parentId === filterHeader;
       return matchesSearch && matchesHeader;
     });
-  }, [categories, searchTerm, filterHeader]);
+
+    return [...filtered].sort((a, b) => {
+      const aName = String(a.name || "").toLowerCase();
+      const bName = String(b.name || "").toLowerCase();
+      const aTime = new Date(a.createdAt || 0).getTime();
+      const bTime = new Date(b.createdAt || 0).getTime();
+
+      switch (sortBy) {
+        case "oldest":
+          return aTime - bTime;
+        case "name-asc":
+          return aName.localeCompare(bName);
+        case "name-desc":
+          return bName.localeCompare(aName);
+        case "newest":
+        default:
+          return bTime - aTime;
+      }
+    });
+  }, [categories, searchTerm, filterHeader, sortBy]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredCategories.length / pageSize));
+
+  const paginatedCategories = useMemo(() => {
+    const startIndex = (page - 1) * pageSize;
+    return filteredCategories.slice(startIndex, startIndex + pageSize);
+  }, [filteredCategories, page, pageSize]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [searchTerm, filterHeader, sortBy, pageSize]);
+
+  useEffect(() => {
+    if (page > totalPages) {
+      setPage(totalPages);
+    }
+  }, [page, totalPages]);
 
   const handleImageChange = (e) => {
     const file = e.target.files[0];
@@ -182,7 +230,7 @@ const Level2Categories = () => {
 
   const handleSelectAll = (e) => {
     if (e.target.checked) {
-      setSelectedItems(filteredCategories.map((c) => c._id || c.id));
+      setSelectedItems(paginatedCategories.map((c) => c._id || c.id));
     } else {
       setSelectedItems([]);
     }
@@ -263,6 +311,17 @@ const Level2Categories = () => {
               ))}
             </select>
           </div>
+          <div className="flex items-center gap-2 min-w-[180px]">
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
+              <option value="newest">Newest first</option>
+              <option value="oldest">Oldest first</option>
+              <option value="name-asc">Name A-Z</option>
+              <option value="name-desc">Name Z-A</option>
+            </select>
+          </div>
         </div>
 
         <div className="overflow-x-auto">
@@ -275,7 +334,10 @@ const Level2Categories = () => {
                     className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
                     checked={
                       selectedItems.length > 0 &&
-                      selectedItems.length === filteredCategories.length
+                      paginatedCategories.length > 0 &&
+                      paginatedCategories.every((cat) =>
+                        selectedItems.includes(cat._id || cat.id),
+                      )
                     }
                     onChange={handleSelectAll}
                   />
@@ -314,7 +376,7 @@ const Level2Categories = () => {
                   </td>
                 </tr>
               ) : (
-                filteredCategories.map((cat) => (
+                paginatedCategories.map((cat) => (
                   <tr
                     key={cat._id || cat.id}
                     className="hover:bg-gray-50/50 transition-colors">
@@ -322,8 +384,8 @@ const Level2Categories = () => {
                       <input
                         type="checkbox"
                         className="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
-                        checked={selectedItems.includes(cat._id)}
-                        onChange={() => handleSelect(cat._id)}
+                        checked={selectedItems.includes(cat._id || cat.id)}
+                        onChange={() => handleSelect(cat._id || cat.id)}
                       />
                     </td>
                     <td className="py-3 px-4">
@@ -378,6 +440,20 @@ const Level2Categories = () => {
               )}
             </tbody>
           </table>
+        </div>
+        <div className="px-4 py-3 border-t border-gray-100">
+          <Pagination
+            page={page}
+            totalPages={totalPages}
+            total={filteredCategories.length}
+            pageSize={pageSize}
+            onPageChange={setPage}
+            onPageSizeChange={(size) => {
+              setPageSize(size);
+              setPage(1);
+            }}
+            loading={isLoading}
+          />
         </div>
       </Card>
 
@@ -458,7 +534,11 @@ const Level2Categories = () => {
                     type="text"
                     value={formData.name}
                     onChange={(e) =>
-                      setFormData({ ...formData, name: e.target.value })
+                      setFormData({
+                        ...formData,
+                        name: e.target.value,
+                        slug: makeSlug(e.target.value),
+                      })
                     }
                     className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                     placeholder="e.g., Laptops"
@@ -472,10 +552,8 @@ const Level2Categories = () => {
                   <input
                     type="text"
                     value={formData.slug}
-                    onChange={(e) =>
-                      setFormData({ ...formData, slug: e.target.value })
-                    }
-                    className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                    readOnly
+                    className="w-full px-3 py-2 rounded-lg border border-gray-300 bg-gray-50 text-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                     placeholder="e.g., laptops"
                   />
                 </div>

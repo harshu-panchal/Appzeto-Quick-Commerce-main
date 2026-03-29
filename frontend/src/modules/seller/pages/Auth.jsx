@@ -151,6 +151,9 @@ const Auth = () => {
         lat: formData.lat,
         lng: formData.lng,
         radius: formData.radius,
+        documents: Object.fromEntries(
+          Object.entries(documents).map(([key, file]) => [key, file ? file.name : ""]),
+        ),
       };
 
       const response = isLogin
@@ -160,19 +163,53 @@ const Auth = () => {
           })
         : await sellerApi.signup(signupPayload);
 
-      const { token, seller } = response.data.result;
-
-      login({
-        ...seller,
-        token,
-        role: "seller",
-      });
-
-      toast.success(
-        isLogin ? "Welcome back, Partner!" : "Account created successfully!",
-      );
-      navigate("/seller");
+      if (isLogin) {
+        const { token, seller } = response.data.result;
+        login({
+          ...seller,
+          token,
+          role: "seller",
+        });
+        toast.success("Welcome back, Partner!");
+        navigate("/seller");
+      } else {
+        setIsLogin(true);
+        setSignupStep(1);
+        setDocuments({
+          tradeLicense: null,
+          gstCertificate: null,
+          idProof: null,
+        });
+        setFormData((prev) => ({
+          ...prev,
+          password: "",
+        }));
+        toast.success(
+          "Application submitted. Login is enabled only after admin approval.",
+        );
+        navigate("/seller/pending-approval", {
+          replace: true,
+          state: {
+            approvalRequired: true,
+            applicationStatus: "pending",
+          },
+        });
+      }
     } catch (error) {
+      if (isLogin && error.response?.status === 403) {
+        const applicationStatus =
+          error.response?.data?.result?.applicationStatus || "pending";
+        const rejectionReason =
+          error.response?.data?.result?.rejectionReason || "";
+        navigate("/seller/pending-approval", {
+          replace: true,
+          state: {
+            approvalRequired: true,
+            applicationStatus,
+            rejectionReason,
+          },
+        });
+      }
       toast.error(error.response?.data?.message || "Authentication failed");
     } finally {
       setIsLoading(false);

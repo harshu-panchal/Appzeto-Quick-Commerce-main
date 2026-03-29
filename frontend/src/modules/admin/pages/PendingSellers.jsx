@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Card from '@shared/components/ui/Card';
 import Badge from '@shared/components/ui/Badge';
@@ -21,84 +21,95 @@ import {
 } from 'react-icons/hi2';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
+import { toast } from 'sonner';
+import { adminApi } from '../services/adminApi';
 
 const PendingSellers = () => {
     const navigate = useNavigate();
-    // Mock Data for Pending Sellers
-    const [pendingSellers, setPendingSellers] = useState([
-        {
-            id: 'p1',
-            shopName: 'Green Leaf Organics',
-            ownerName: 'Amit Patel',
-            email: 'amit@greenleaf.com',
-            phone: '+91 91234 56789',
-            category: 'Grocery',
-            applicationDate: '12 Feb 2024',
-            status: 'pending',
-            documents: ['Trade License', 'GST Certificate', 'ID Proof'],
-            location: 'Ahmedabad, Gujarat',
-            description: 'We specialize in farm-to-table organic produce and sustainable pantry staples.'
-        },
-        {
-            id: 'p2',
-            shopName: 'Electro Hub',
-            ownerName: 'Sara Khan',
-            email: 'sara@electrohub.in',
-            phone: '+91 82345 67890',
-            category: 'Electronics',
-            applicationDate: '13 Feb 2024',
-            status: 'pending',
-            documents: ['GST Certificate', 'Business Registration'],
-            location: 'Hyderabad, Telangana',
-            description: 'Premium electronics retailer focusing on mobile accessories and gadgets.'
-        },
-        {
-            id: 'p3',
-            shopName: 'Daily Bakes Bakery',
-            ownerName: 'John Doe',
-            email: 'john@dailybakes.com',
-            phone: '+91 73456 78901',
-            category: 'Bakery',
-            applicationDate: '14 Feb 2024',
-            status: 'pending',
-            documents: ['FSSAI License', 'Business Registration'],
-            location: 'Chennai, Tamil Nadu',
-            description: 'Artisanal bakery with a focus on sourdough breads and custom cakes.'
-        }
-    ]);
-
+    const [pendingSellers, setPendingSellers] = useState([]);
+    const [summaryStats, setSummaryStats] = useState({
+        totalApplications: 0,
+        receivedToday: 0,
+        missingInfo: 0,
+        avgReviewTimeHours: 24
+    });
     const [searchTerm, setSearchTerm] = useState('');
+    const [isLoading, setIsLoading] = useState(true);
     const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
     const [viewingSeller, setViewingSeller] = useState(null);
     const [isProcessing, setIsProcessing] = useState(false);
 
+    const fetchPendingSellers = async () => {
+        setIsLoading(true);
+        try {
+            const response = await adminApi.getPendingSellers({ q: searchTerm || undefined });
+            const payload = response.data.result || {};
+            const items = Array.isArray(payload.items) ? payload.items : [];
+            setPendingSellers(items);
+            setSummaryStats({
+                totalApplications: payload.stats?.totalApplications ?? items.length,
+                receivedToday: payload.stats?.receivedToday ?? 0,
+                missingInfo: payload.stats?.missingInfo ?? items.filter((s) => (s.documents || []).length < 3).length,
+                avgReviewTimeHours: payload.stats?.avgReviewTimeHours ?? 24
+            });
+        } catch (error) {
+            console.error('Failed to fetch pending sellers', error);
+            toast.error(error.response?.data?.message || 'Failed to load seller applications');
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchPendingSellers();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
     const stats = useMemo(() => ({
-        total: pendingSellers.length,
-        today: 1, // Mock
-        urgent: pendingSellers.filter(s => s.documents.length < 3).length
-    }), [pendingSellers]);
+        total: summaryStats.totalApplications,
+        today: summaryStats.receivedToday,
+        urgent: summaryStats.missingInfo
+    }), [summaryStats]);
 
     const filteredSellers = useMemo(() => {
         return pendingSellers.filter(s =>
-            s.shopName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            s.ownerName.toLowerCase().includes(searchTerm.toLowerCase())
+            String(s.shopName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+            String(s.ownerName || '').toLowerCase().includes(searchTerm.toLowerCase())
         );
     }, [pendingSellers, searchTerm]);
 
-    const handleApprove = (id) => {
+    const handleApprove = async (id) => {
         setIsProcessing(true);
-        setTimeout(() => {
-            setPendingSellers(pendingSellers.filter(s => s.id !== id));
+        try {
+            await adminApi.approveSeller(id);
             setIsReviewModalOpen(false);
+            setViewingSeller(null);
+            toast.success('Seller approved successfully');
+            await fetchPendingSellers();
+        } catch (error) {
+            console.error('Failed to approve seller', error);
+            toast.error(error.response?.data?.message || 'Failed to approve seller');
+        } finally {
             setIsProcessing(false);
-            // In real app, toast success
-        }, 1500);
+        }
     };
 
-    const handleReject = (id) => {
+    const handleReject = async (id) => {
         if (window.confirm('Are you sure you want to reject this application?')) {
-            setPendingSellers(pendingSellers.filter(s => s.id !== id));
-            setIsReviewModalOpen(false);
+            setIsProcessing(true);
+            try {
+                const reason = window.prompt('Optional rejection reason (leave blank if not needed):') || '';
+                await adminApi.rejectSeller(id, { reason });
+                setIsReviewModalOpen(false);
+                setViewingSeller(null);
+                toast.success('Seller application rejected');
+                await fetchPendingSellers();
+            } catch (error) {
+                console.error('Failed to reject seller', error);
+                toast.error(error.response?.data?.message || 'Failed to reject seller');
+            } finally {
+                setIsProcessing(false);
+            }
         }
     };
 
@@ -115,7 +126,7 @@ const PendingSellers = () => {
                 </div>
                 <div className="flex items-center gap-2 bg-amber-50 px-4 py-2 rounded-xl ring-1 ring-amber-100">
                     <HiOutlineClock className="h-4 w-4 text-amber-600" />
-                    <span className="text-[10px] font-bold text-amber-700 uppercase tracking-widest">Avg Review Time: 24h</span>
+                    <span className="text-[10px] font-bold text-amber-700 uppercase tracking-widest">Avg Review Time: {summaryStats.avgReviewTimeHours}h</span>
                 </div>
             </div>
 
@@ -170,7 +181,16 @@ const PendingSellers = () => {
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-50">
-                            {filteredSellers.length > 0 ? filteredSellers.map((s) => (
+                            {isLoading ? (
+                                <tr>
+                                    <td colSpan="4" className="px-6 py-20 text-center">
+                                        <div className="flex flex-col items-center justify-center gap-3">
+                                            <HiOutlineArrowPath className="h-8 w-8 text-slate-300 animate-spin" />
+                                            <p className="text-slate-500 font-bold text-sm">Loading seller applications...</p>
+                                        </div>
+                                    </td>
+                                </tr>
+                            ) : filteredSellers.length > 0 ? filteredSellers.map((s) => (
                                 <tr key={s.id} className="hover:bg-slate-50/30 transition-colors group">
                                     <td className="px-6 py-4">
                                         <div
@@ -190,7 +210,7 @@ const PendingSellers = () => {
                                     </td>
                                     <td className="px-6 py-4">
                                         <div className="flex flex-wrap gap-1.5">
-                                            {s.documents.map((doc, idx) => (
+                                            {(s.documents || []).map((doc, idx) => (
                                                 <span key={idx} className="px-2 py-0.5 bg-blue-50 text-blue-600 text-[8px] font-bold rounded-full ring-1 ring-blue-100 uppercase">{doc}</span>
                                             ))}
                                         </div>
@@ -254,7 +274,7 @@ const PendingSellers = () => {
                                     <div className="lg:col-span-4 bg-slate-50 p-4 border-r border-slate-100">
                                         <div className="flex justify-between items-start mb-8">
                                             <div className="h-20 w-20 rounded-xl bg-white shadow-xl flex items-center justify-center ds-stat-large font-bold text-primary border-4 border-white">
-                                                {viewingSeller.shopName[0]}
+                                                {(viewingSeller.shopName || 'S').charAt(0)}
                                             </div>
                                             <button
                                                 onClick={() => setIsReviewModalOpen(false)}
@@ -267,7 +287,7 @@ const PendingSellers = () => {
                                         <div className="space-y-6">
                                             <div>
                                                 <h3 className="ds-h2 leading-tight">{viewingSeller.shopName}</h3>
-                                                <p className="text-xs font-bold text-primary mt-1 uppercase tracking-widest">{viewingSeller.category} PARTNER</p>
+                                                <p className="text-xs font-bold text-primary mt-1 uppercase tracking-widest">{viewingSeller.category || 'General'} PARTNER</p>
                                             </div>
 
                                             <div className="space-y-4">
@@ -317,7 +337,7 @@ const PendingSellers = () => {
                                             </div>
 
                                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                                {viewingSeller.documents.map((doc, i) => (
+                                                {(viewingSeller.documents || []).map((doc, i) => (
                                                     <div key={i} className="p-4 rounded-2xl border-2 border-slate-50 bg-slate-50/50 hover:bg-white hover:border-indigo-100 transition-all cursor-pointer group">
                                                         <div className="flex items-center justify-between">
                                                             <div className="flex items-center gap-3">

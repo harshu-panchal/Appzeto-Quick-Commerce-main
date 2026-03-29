@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import Card from "@shared/components/ui/Card";
 import Badge from "@shared/components/ui/Badge";
+import Pagination from "@shared/components/ui/Pagination";
 import {
   Plus,
   Search,
@@ -17,6 +18,14 @@ import { motion, AnimatePresence } from "framer-motion";
 import { adminApi } from "../../services/adminApi";
 import { toast } from "sonner";
 
+const makeSlug = (value) =>
+  String(value || "")
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, "-")
+    .replace(/[^\w-]+/g, "")
+    .replace(/-+/g, "-");
+
 const SubCategories = () => {
   const [categories, setCategories] = useState([]);
   const [level2Categories, setLevel2Categories] = useState([]);
@@ -24,6 +33,9 @@ const SubCategories = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterLevel2, setFilterLevel2] = useState("all");
+  const [sortBy, setSortBy] = useState("newest");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
@@ -80,7 +92,7 @@ const SubCategories = () => {
   };
 
   const filteredCategories = useMemo(() => {
-    return categories.filter((cat) => {
+    const filtered = categories.filter((cat) => {
       const matchesSearch = cat.name
         .toLowerCase()
         .includes(searchTerm.toLowerCase());
@@ -90,7 +102,60 @@ const SubCategories = () => {
         cat.parentId === filterLevel2;
       return matchesSearch && matchesParent;
     });
-  }, [categories, searchTerm, filterLevel2]);
+
+    return [...filtered].sort((a, b) => {
+      const aName = String(a.name || "").toLowerCase();
+      const bName = String(b.name || "").toLowerCase();
+      const aTime = new Date(a.createdAt || 0).getTime();
+      const bTime = new Date(b.createdAt || 0).getTime();
+
+      switch (sortBy) {
+        case "oldest":
+          return aTime - bTime;
+        case "name-asc":
+          return aName.localeCompare(bName);
+        case "name-desc":
+          return bName.localeCompare(aName);
+        case "newest":
+        default:
+          return bTime - aTime;
+      }
+    });
+  }, [categories, searchTerm, filterLevel2, sortBy]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredCategories.length / pageSize));
+
+  const paginatedCategories = useMemo(() => {
+    const startIndex = (page - 1) * pageSize;
+    return filteredCategories.slice(startIndex, startIndex + pageSize);
+  }, [filteredCategories, page, pageSize]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [searchTerm, filterLevel2, sortBy, pageSize]);
+
+  useEffect(() => {
+    if (page > totalPages) {
+      setPage(totalPages);
+    }
+  }, [page, totalPages]);
+
+  const sortedParentCategoryOptions = useMemo(() => {
+    return [...level2Categories]
+      .map((c) => {
+        const headerId = c.parentId?._id || c.parentId;
+        const header = headerCategories.find(
+          (h) => (h._id || h.id) === headerId,
+        );
+        const headerName = header ? header.name : "Unknown";
+
+        return {
+          id: c._id || c.id,
+          label: `${headerName} > ${c.name}`,
+        };
+      })
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [level2Categories, headerCategories]);
 
   const handleImageChange = (e) => {
     const file = e.target.files[0];
@@ -191,7 +256,7 @@ const SubCategories = () => {
 
   const handleSelectAll = (e) => {
     if (e.target.checked) {
-      setSelectedItems(filteredCategories.map((c) => c._id || c.id));
+      setSelectedItems(paginatedCategories.map((c) => c._id || c.id));
     } else {
       setSelectedItems([]);
     }
@@ -262,6 +327,17 @@ const SubCategories = () => {
               ))}
             </select>
           </div>
+          <div className="flex items-center gap-2 min-w-[180px]">
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
+              <option value="newest">Newest first</option>
+              <option value="oldest">Oldest first</option>
+              <option value="name-asc">Name A-Z</option>
+              <option value="name-desc">Name Z-A</option>
+            </select>
+          </div>
         </div>
 
         <div className="overflow-x-auto">
@@ -274,7 +350,10 @@ const SubCategories = () => {
                     className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
                     checked={
                       selectedItems.length > 0 &&
-                      selectedItems.length === filteredCategories.length
+                      paginatedCategories.length > 0 &&
+                      paginatedCategories.every((cat) =>
+                        selectedItems.includes(cat._id || cat.id),
+                      )
                     }
                     onChange={handleSelectAll}
                   />
@@ -313,7 +392,7 @@ const SubCategories = () => {
                   </td>
                 </tr>
               ) : (
-                filteredCategories.map((cat) => {
+                paginatedCategories.map((cat) => {
                   const parentInfo = getParentInfo(cat.parentId);
                   return (
                     <tr
@@ -323,8 +402,8 @@ const SubCategories = () => {
                         <input
                           type="checkbox"
                           className="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
-                          checked={selectedItems.includes(cat._id)}
-                          onChange={() => handleSelect(cat._id)}
+                          checked={selectedItems.includes(cat._id || cat.id)}
+                          onChange={() => handleSelect(cat._id || cat.id)}
                         />
                       </td>
                       <td className="py-3 px-4">
@@ -384,6 +463,20 @@ const SubCategories = () => {
               )}
             </tbody>
           </table>
+        </div>
+        <div className="px-4 py-3 border-t border-gray-100">
+          <Pagination
+            page={page}
+            totalPages={totalPages}
+            total={filteredCategories.length}
+            pageSize={pageSize}
+            onPageChange={setPage}
+            onPageSizeChange={(size) => {
+              setPageSize(size);
+              setPage(1);
+            }}
+            loading={isLoading}
+          />
         </div>
       </Card>
 
@@ -448,24 +541,11 @@ const SubCategories = () => {
                     }
                     className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
                     <option value="">Select Parent Category</option>
-                    {level2Categories.map((c) => {
-                      const parentInfo = getParentInfo(c._id || c.id);
-                      // Since getParentInfo uses level2Categories state which might be same as c,
-                      // we actually need header info.
-                      // But getParentInfo looks up in headerCategories which we have.
-                      // However, `c` is the category itself (level 2). We need its parent (header).
-                      const headerId = c.parentId?._id || c.parentId;
-                      const header = headerCategories.find(
-                        (h) => (h._id || h.id) === headerId,
-                      );
-                      const headerName = header ? header.name : "Unknown";
-
-                      return (
-                        <option key={c._id || c.id} value={c._id || c.id}>
-                          {headerName} &gt; {c.name}
-                        </option>
-                      );
-                    })}
+                    {sortedParentCategoryOptions.map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {option.label}
+                      </option>
+                    ))}
                   </select>
                 </div>
 
@@ -477,7 +557,11 @@ const SubCategories = () => {
                     type="text"
                     value={formData.name}
                     onChange={(e) =>
-                      setFormData({ ...formData, name: e.target.value })
+                      setFormData({
+                        ...formData,
+                        name: e.target.value,
+                        slug: makeSlug(e.target.value),
+                      })
                     }
                     className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                     placeholder="e.g., Gaming Laptops"
@@ -491,10 +575,8 @@ const SubCategories = () => {
                   <input
                     type="text"
                     value={formData.slug}
-                    onChange={(e) =>
-                      setFormData({ ...formData, slug: e.target.value })
-                    }
-                    className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                    readOnly
+                    className="w-full px-3 py-2 rounded-lg border border-gray-300 bg-gray-50 text-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                     placeholder="e.g., gaming-laptops"
                   />
                 </div>

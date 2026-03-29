@@ -230,6 +230,10 @@ export async function sellerAcceptAtomic(sellerId, orderId) {
       workflowVersion: { $gte: 2 },
       workflowStatus: WORKFLOW_STATUS.SELLER_PENDING,
       sellerPendingExpiresAt: { $gt: now },
+      $or: [
+        { paymentMode: { $ne: "ONLINE" } },
+        { paymentStatus: "PAID" },
+      ],
     },
     {
       $set: {

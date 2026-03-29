@@ -155,14 +155,14 @@ const CategoryProductsPage = () => {
                             )}
                         >
                             <div className={cn(
-                                "w-12 h-12 rounded-2xl flex items-center justify-center p-2 transition-all duration-300",
-                                selectedSubCategory === cat.id ? "scale-110" : "grayscale opacity-70"
+                                "w-14 h-14 rounded-2xl flex items-center justify-center p-1.5 transition-all duration-300",
+                                selectedSubCategory === cat.id ? "scale-110" : "opacity-100"
                             )}>
                                 <img src={cat.icon} alt={cat.name} className="w-full h-full object-contain" />
                             </div>
                             <span className={cn(
                                 "text-[10px] text-center font-bold font-sans leading-tight px-1",
-                                selectedSubCategory === cat.id ? "text-[#0c831f]" : "text-gray-500"
+                                selectedSubCategory === cat.id ? "text-[#0c831f]" : "text-gray-600"
                             )}>
                                 {cat.name}
                             </span>

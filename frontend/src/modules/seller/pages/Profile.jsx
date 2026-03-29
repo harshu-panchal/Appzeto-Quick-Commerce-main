@@ -143,9 +143,9 @@ const SellerProfile = () => {
         </div>
 
         {/* Profile Info Row */}
-        <div className="absolute bottom-8 left-12 right-12 flex flex-col md:flex-row items-center md:items-end gap-10">
+        <div className="absolute bottom-8 left-4 right-4 md:left-8 md:right-8 lg:left-12 lg:right-12 grid grid-cols-1 md:grid-cols-[176px_minmax(0,1fr)_auto] items-center md:items-end gap-6 md:gap-8">
           {/* Avatar Container */}
-          <div className="h-44 w-44 rounded-full bg-white p-2 shadow-[0_30px_70px_rgba(0,0,0,0.15)] flex-shrink-0">
+          <div className="h-44 w-44 rounded-full bg-white p-2 shadow-[0_30px_70px_rgba(0,0,0,0.15)] flex-shrink-0 mx-auto md:mx-0">
             <div className="h-full w-full rounded-full bg-slate-50 flex items-center justify-center border-4 border-slate-50">
               <span className="text-7xl font-black text-slate-900">
                 {profile?.name?.charAt(0)}
@@ -154,7 +154,7 @@ const SellerProfile = () => {
           </div>
 
           {/* Info Block */}
-          <div className="flex-1 pb-4 text-center md:text-left">
+          <div className="min-w-0 pb-2 md:pb-4 text-center md:text-left">
             <div className="flex flex-wrap items-center justify-center md:justify-start gap-4 mb-3">
               <span className="px-4 py-1.5 bg-white/10 backdrop-blur-xl text-white text-[10px] font-black uppercase tracking-[2px] rounded-full border border-white/20">
                 {profile?.role}
@@ -165,7 +165,7 @@ const SellerProfile = () => {
                 {profile?.isActive ? "Active" : "Inactive"}
               </span>
             </div>
-            <h1 className="text-6xl font-black text-white tracking-tighter drop-shadow-sm mb-1">
+            <h1 className="text-4xl md:text-5xl lg:text-6xl font-black text-white tracking-tighter drop-shadow-sm mb-1 break-words">
               {profile?.name}
             </h1>
             <p className="text-white/60 font-black tracking-[1px] text-lg">
@@ -174,15 +174,15 @@ const SellerProfile = () => {
           </div>
 
           {/* Action Button */}
-          <div className="pb-4">
+          <div className="pb-2 md:pb-4 w-full md:w-auto">
             {!isEditing ? (
               <Button
                 onClick={() => setIsEditing(true)}
-                className="bg-white/10 backdrop-blur-md text-white border border-white/20 hover:bg-white hover:text-slate-950 transition-all rounded-lg px-12 py-5 flex items-center gap-4 font-black tracking-[3px] text-xs shadow-[0_20px_40px_rgba(0,0,0,0.1)] hover:scale-[1.05] active:scale-[0.95]">
+                className="w-full md:w-auto bg-white/10 backdrop-blur-md text-white border border-white/20 hover:bg-white hover:text-slate-950 transition-all rounded-lg px-6 lg:px-12 py-4 md:py-5 flex items-center justify-center gap-3 md:gap-4 font-black tracking-[2px] md:tracking-[3px] text-xs shadow-[0_20px_40px_rgba(0,0,0,0.1)] hover:scale-[1.03] active:scale-[0.95] whitespace-nowrap">
                 <Edit2 size={18} /> EDIT PROFILE
               </Button>
             ) : (
-              <div className="flex gap-4">
+              <div className="w-full md:w-auto flex gap-3 md:gap-4 justify-center md:justify-end">
                 <Button
                   onClick={() => setIsEditing(false)}
                   variant="outline"
@@ -192,7 +192,7 @@ const SellerProfile = () => {
                 <Button
                   onClick={handleSubmit}
                   disabled={isSaving}
-                  className="bg-white text-slate-950 hover:bg-slate-100 rounded-lg px-12 py-5 font-black tracking-[3px] text-xs flex items-center gap-4 shadow-[0_25px_50px_rgba(0,0,0,0.15)] h-[64px]">
+                  className="min-w-0 max-w-full bg-white text-slate-950 hover:bg-slate-100 rounded-lg px-5 md:px-8 lg:px-12 py-4 md:py-5 font-black tracking-[2px] md:tracking-[3px] text-xs flex items-center gap-3 md:gap-4 shadow-[0_25px_50px_rgba(0,0,0,0.15)] h-[64px] whitespace-nowrap">
                   {isSaving ? (
                     "UPDATING..."
                   ) : (

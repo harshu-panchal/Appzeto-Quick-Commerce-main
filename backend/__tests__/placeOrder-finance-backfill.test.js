@@ -17,6 +17,8 @@ const mockProductFindByIdAndUpdate = jest.fn();
 const mockTransactionCreate = jest.fn();
 const mockStockHistoryCreate = jest.fn();
 const mockNotificationCreate = jest.fn();
+const mockPlaceOrderAtomic = jest.fn();
+const mockCreateFinanceOrderSchemaValidate = jest.fn();
 
 const OrderMock = jest.fn().mockImplementation((doc) => ({
   ...doc,
@@ -108,6 +110,14 @@ jest.unstable_mockModule("../app/utils/orderLookup.js", () => ({
 jest.unstable_mockModule("../app/utils/geoUtils.js", () => ({
   distanceMeters: jest.fn(),
 }));
+jest.unstable_mockModule("../app/services/orderPlacementService.js", () => ({
+  placeOrderAtomic: mockPlaceOrderAtomic,
+}));
+jest.unstable_mockModule("../app/validation/financeValidation.js", () => ({
+  createFinanceOrderSchema: {
+    validate: mockCreateFinanceOrderSchemaValidate,
+  },
+}));
 
 const { placeOrder } = await import("../app/controller/orderController.js");
 
@@ -151,6 +161,20 @@ describe("placeOrder legacy route finance backfill", () => {
       },
       lineItems: [],
     });
+
+    mockCreateFinanceOrderSchemaValidate.mockImplementation((payload) => ({
+      value: payload,
+      error: null,
+    }));
+    mockPlaceOrderAtomic.mockResolvedValue({
+      order: {
+        _id: "mongo-order-1",
+        orderId: "ORD-20260325-TEST",
+        paymentMode: "COD",
+        paymentStatus: "PENDING_CASH_COLLECTION",
+      },
+      duplicate: false,
+    });
   });
 
   it("sets paymentMode/paymentStatus and freezes paymentBreakdown for COD orders", async () => {
@@ -169,10 +193,11 @@ describe("placeOrder legacy route finance backfill", () => {
     const result = await placeOrder(req, res);
 
     expect(result.status).toBe(201);
-    expect(OrderMock).toHaveBeenCalledTimes(1);
-    expect(OrderMock.mock.calls[0][0].paymentMode).toBe("COD");
-    expect(OrderMock.mock.calls[0][0].paymentStatus).toBe("PENDING_CASH_COLLECTION");
-    expect(mockFreezeFinancialSnapshot).toHaveBeenCalledTimes(1);
-    expect(mockGenerateOrderPaymentBreakdown).toHaveBeenCalledTimes(1);
+    expect(mockPlaceOrderAtomic).toHaveBeenCalledWith(
+      expect.objectContaining({
+        customerId: "cust-1",
+        idempotencyKey: null,
+      }),
+    );
   });
 });
