@@ -43,6 +43,38 @@ export const AuthProvider = ({ children }) => {
     const token = authData[currentRole];
     const isAuthenticated = !!token;
 
+    // Register FCM token after login (non-blocking).
+    useEffect(() => {
+        if (!token) return;
+        let cancelled = false;
+
+        // Fire-and-forget; never block auth/profile load.
+        setTimeout(() => {
+            import('@core/firebase/pushClient')
+                .then(async ({
+                    ensureFcmTokenRegistered,
+                    hasRegisteredFcmToken,
+                    startForegroundPushListener
+                }) => {
+                    if (cancelled) return;
+                    await startForegroundPushListener();
+                    if (hasRegisteredFcmToken(currentRole)) return;
+                    await ensureFcmTokenRegistered({
+                        role: currentRole,
+                        platform: 'web'
+                    });
+                })
+                .catch(() => {
+                    // Permission denied / unsupported / any error: ignore silently.
+                    // User can still retry from a later push-enabled action.
+                });
+        }, 0);
+
+        return () => {
+            cancelled = true;
+        };
+    }, [token, currentRole]);
+
     // Fetch user profile on mount or token change
     useEffect(() => {
         const fetchProfile = async () => {
@@ -84,7 +116,14 @@ export const AuthProvider = ({ children }) => {
         }
     };
 
-    const logout = () => {
+    const logout = async () => {
+        try {
+            const { removeStoredFcmToken } = await import('@core/firebase/pushClient');
+            await removeStoredFcmToken({ role: currentRole });
+        } catch (error) {
+            console.warn('Failed to remove push token during logout:', error);
+        }
+
         // Clear all role-specific tokens from localStorage
         Object.values(ROLE_STORAGE_KEYS).forEach(key => {
             localStorage.removeItem(key);
@@ -92,6 +131,10 @@ export const AuthProvider = ({ children }) => {
 
         // Also clear common 'token' key if implemented
         localStorage.removeItem('token');
+        Object.keys(ROLE_STORAGE_KEYS).forEach((role) => {
+            sessionStorage.removeItem(`push:registered:${role}`);
+            localStorage.removeItem(`push:fcm-token:${role}`);
+        });
 
         // Reset auth state for all roles to null
         setAuthData({

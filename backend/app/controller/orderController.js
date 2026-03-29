@@ -3,7 +3,6 @@ import Cart from "../models/cart.js";
 import Product from "../models/product.js";
 import Transaction from "../models/transaction.js";
 import StockHistory from "../models/stockHistory.js";
-import Notification from "../models/notification.js";
 import Seller from "../models/seller.js";
 import Delivery from "../models/delivery.js";
 import Setting from "../models/setting.js";
@@ -40,6 +39,8 @@ import {
 } from "../utils/orderLookup.js";
 import { createFinanceOrderSchema } from "../validation/financeValidation.js";
 import { placeOrderAtomic } from "../services/orderPlacementService.js";
+import { emitNotificationEvent } from "../modules/notifications/notification.emitter.js";
+import { NOTIFICATION_EVENTS } from "../modules/notifications/notification.constants.js";
 
 function validateWithJoi(schema, payload) {
   const { error, value } = schema.validate(payload, {
@@ -571,18 +572,6 @@ export const requestReturn = async (req, res) => {
 
     await order.save();
 
-    // Basic notification for seller about new return request
-    if (order.seller) {
-      await Notification.create({
-        recipient: order.seller,
-        recipientModel: "Seller",
-        title: "New Return Request",
-        message: `Customer requested a return for order #${order.orderId}.`,
-        type: "order",
-        data: { orderId: order.orderId, mongoOrderId: order._id },
-      });
-    }
-
     return handleResponse(
       res,
       200,
@@ -771,6 +760,13 @@ export const updateOrderStatus = async (req, res) => {
         { reference: canonicalOrderId },
         { status: "Failed" },
       );
+
+      emitNotificationEvent(NOTIFICATION_EVENTS.ORDER_CANCELLED, {
+        orderId: canonicalOrderId,
+        customerId: order.customer,
+        userId: order.customer,
+        sellerId: order.seller,
+      });
     }
 
     // Handle Confirmation/Delivery (Settle Transaction for Demo)
@@ -783,6 +779,14 @@ export const updateOrderStatus = async (req, res) => {
       await order.save();
       await applyDeliveredSettlement(order, canonicalOrderId);
 
+      emitNotificationEvent(NOTIFICATION_EVENTS.ORDER_DELIVERED, {
+        orderId: canonicalOrderId,
+        customerId: order.customer,
+        userId: order.customer,
+        sellerId: order.seller,
+        deliveryId: order.deliveryBoy,
+      });
+
       const refreshed = await Order.findById(order._id);
       return handleResponse(res, 200, "Order status updated", refreshed || order);
     }
@@ -793,6 +797,39 @@ export const updateOrderStatus = async (req, res) => {
     if (status === "confirmed" && role === "seller") {
       // This order is now 'Automatic' for delivery partners
       console.log("Order confirmed, available for delivery.");
+      emitNotificationEvent(NOTIFICATION_EVENTS.ORDER_CONFIRMED, {
+        orderId: canonicalOrderId,
+        customerId: order.customer,
+        userId: order.customer,
+        sellerId: order.seller,
+      });
+    }
+
+    if (status === "packed") {
+      emitNotificationEvent(NOTIFICATION_EVENTS.ORDER_PACKED, {
+        orderId: canonicalOrderId,
+        customerId: order.customer,
+        userId: order.customer,
+        sellerId: order.seller,
+        deliveryId: order.deliveryBoy,
+      });
+      if (order.deliveryBoy) {
+        emitNotificationEvent(NOTIFICATION_EVENTS.ORDER_READY, {
+          orderId: canonicalOrderId,
+          deliveryId: order.deliveryBoy,
+          sellerId: order.seller,
+        });
+      }
+    }
+
+    if (status === "out_for_delivery") {
+      emitNotificationEvent(NOTIFICATION_EVENTS.OUT_FOR_DELIVERY, {
+        orderId: canonicalOrderId,
+        customerId: order.customer,
+        userId: order.customer,
+        sellerId: order.seller,
+        deliveryId: order.deliveryBoy,
+      });
     }
 
     return handleResponse(res, 200, "Order status updated", order);
@@ -861,6 +898,15 @@ export const approveReturnRequest = async (req, res) => {
     order.returnDeliveryCommission = returnCommission;
 
     await order.save();
+    emitNotificationEvent(NOTIFICATION_EVENTS.REFUND_INITIATED, {
+      orderId: order.orderId,
+      customerId: order.customer,
+      userId: order.customer,
+      sellerId: order.seller,
+      data: {
+        refundAmount,
+      },
+    });
 
     return handleResponse(res, 200, "Return request approved", order);
   } catch (error) {
@@ -976,14 +1022,11 @@ export const assignReturnDelivery = async (req, res) => {
     order.returnStatus = "return_pickup_assigned";
 
     await order.save();
-
-    await Notification.create({
-      recipient: deliveryBoyId,
-      recipientModel: "Delivery",
-      title: "Return Pickup Assigned",
-      message: `A return pickup has been assigned for order #${order.orderId}.`,
-      type: "order",
-      data: { orderId: order.orderId, mongoOrderId: order._id },
+    emitNotificationEvent(NOTIFICATION_EVENTS.ORDER_READY, {
+      orderId: order.orderId,
+      deliveryId: deliveryBoyId,
+      sellerId: order.seller,
+      customerId: order.customer,
     });
 
     return handleResponse(
@@ -1066,6 +1109,17 @@ const completeReturnAndRefund = async (order) => {
   }
 
   await order.save();
+  emitNotificationEvent(NOTIFICATION_EVENTS.REFUND_COMPLETED, {
+    orderId: order.orderId,
+    customerId: order.customer,
+    userId: order.customer,
+    sellerId: order.seller,
+    deliveryId: order.returnDeliveryBoy,
+    data: {
+      refundAmount,
+      returnDeliveryCommission: commission,
+    },
+  });
   return order;
 };
 
@@ -1314,14 +1368,11 @@ export const acceptOrder = async (req, res) => {
     }
 
     await order.save();
-
-    await Notification.create({
-      recipient: order.seller,
-      recipientModel: "Seller",
-      title: "Delivery Partner Assigned",
-      message: `Delivery partner has been assigned to your order #${order.orderId}.`,
-      type: "order",
-      data: { orderId: order.orderId, mongoOrderId: order._id },
+    emitNotificationEvent(NOTIFICATION_EVENTS.DELIVERY_ASSIGNED, {
+      orderId: order.orderId,
+      deliveryId: userId,
+      customerId: order.customer,
+      sellerId: order.seller,
     });
 
     return handleResponse(res, 200, "Order accepted successfully", order);

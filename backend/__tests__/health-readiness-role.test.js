@@ -23,6 +23,11 @@ jest.unstable_mockModule("../app/core/processRole.js", () => ({
 jest.unstable_mockModule("../app/config/redis.js", () => ({
   isRedisEnabled: () => false,
   getRedisClient: () => null,
+  getRedisOptionsForBull: () => ({
+    host: "127.0.0.1",
+    port: 6379,
+  }),
+  createBullRedisClient: () => null,
 }));
 
 jest.unstable_mockModule("../app/queues/orderQueues.js", () => ({

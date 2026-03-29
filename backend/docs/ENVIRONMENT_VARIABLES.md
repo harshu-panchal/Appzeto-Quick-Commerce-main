@@ -41,6 +41,25 @@ Redis is **mandatory in production** (`NODE_ENV=production`). Startup fails if n
 | `JWT_EXPIRES_IN` | `7d` | No | JWT token expiry |
 | `ADMIN_SECRET_KEY` | — | Prod: **Yes** | Admin operations secret |
 
+## SMS / OTP
+
+| Variable | Default | Required | Description |
+|----------|---------|----------|-------------|
+| `USE_MOCK_OTP` | `true` in local dev | No | Enables mock OTP mode for the shared `/api/auth/otp/*` flow |
+| `USE_REAL_SMS` | `false` | No | Backward-compatible flag used by older OTP flows |
+| `OTP_EXPIRY_MINUTES` | `5` | No | OTP validity window |
+| `OTP_LENGTH` | `4` | No | OTP length for the shared SMS OTP flow |
+| `OTP_MAX_FAILED_ATTEMPTS` | `5` | No | Max invalid verification attempts before the OTP session is discarded |
+| `OTP_SEND_RATE_LIMIT_WINDOW_MS` | `900000` | No | Send OTP rate-limit window |
+| `OTP_SEND_RATE_LIMIT_MAX` | `5` | No | Max send OTP requests per window |
+| `OTP_VERIFY_RATE_LIMIT_WINDOW_MS` | `900000` | No | Verify OTP rate-limit window |
+| `OTP_VERIFY_RATE_LIMIT_MAX` | `10` | No | Max verify OTP requests per window |
+| `SMS_INDIA_HUB_API_KEY` | â€” | Real SMS: **Yes** | SMS India HUB API key |
+| `SMS_INDIA_HUB_SENDER_ID` | â€” | Real SMS: **Yes** | DLT-registered sender ID |
+| `SMS_INDIA_HUB_DLT_TEMPLATE_ID` | â€” | Real SMS: **Yes** | Approved DLT template ID |
+| `SMS_INDIA_HUB_URL` | `http://cloud.smsindiahub.in/vendorsms/pushsms.aspx` | No | SMS India HUB endpoint |
+| `SMS_INDIA_HUB_TIMEOUT_MS` | `10000` | No | SMS provider request timeout |
+
 ## Media / Cloudinary
 
 | Variable | Default | Required | Description |

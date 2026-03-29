@@ -1,9 +1,10 @@
 import dotenv from "dotenv";
 import Order from "../models/order.js";
-import Notification from "../models/notification.js";
 import { WORKFLOW_STATUS } from "../constants/orderWorkflow.js";
 import { processSellerTimeoutJob, processDeliveryTimeoutJob } from "../services/orderWorkflowService.js";
 import { compensateOrderCancellation } from "../services/orderCompensation.js";
+import { emitNotificationEvent } from "../modules/notifications/notification.emitter.js";
+import { NOTIFICATION_EVENTS } from "../modules/notifications/notification.constants.js";
 import logger from "../services/logger.js";
 
 dotenv.config();
@@ -98,6 +99,14 @@ const autoCancelExpiredOrders = async () => {
         );
         if (updated) {
           await compensateOrderCancellation(updated, updated.orderId);
+          emitNotificationEvent(NOTIFICATION_EVENTS.ORDER_CANCELLED, {
+            orderId: updated.orderId,
+            customerId: updated.customer,
+            userId: updated.customer,
+            sellerId: updated.seller,
+            customerMessage: "Order cancelled due to payment timeout.",
+            sellerMessage: `Order #${updated.orderId} cancelled due to payment timeout.`,
+          });
         }
       } catch (err) {
         logger.error('payment timeout cancellation failed', {
@@ -133,16 +142,16 @@ const autoCancelExpiredOrders = async () => {
         });
       }
 
-      if (order.seller) {
-        await Notification.create({
-          recipient: order.seller,
-          recipientModel: "Seller",
-          title: "Order Timed Out",
-          message: `Order #${order.orderId} was cancelled because it wasn't accepted within 60 seconds.`,
-          type: "order",
-          data: { orderId: order.orderId, mongoOrderId: order._id },
-        });
-      }
+      emitNotificationEvent(NOTIFICATION_EVENTS.ORDER_CANCELLED, {
+        orderId: order.orderId,
+        customerId: order.customer,
+        userId: order.customer,
+        sellerId: order.seller,
+        customerMessage:
+          "Your order was cancelled because it was not accepted in time.",
+        sellerMessage:
+          `Order #${order.orderId} was cancelled because it was not accepted in time.`,
+      });
     }
 
     const n =

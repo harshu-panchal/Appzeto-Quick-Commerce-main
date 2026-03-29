@@ -2,7 +2,6 @@ import mongoose from "mongoose";
 import Order from "../models/order.js";
 import DeliveryAssignment from "../models/deliveryAssignment.js";
 import OrderOtp from "../models/orderOtp.js";
-import Notification from "../models/notification.js";
 import Seller from "../models/seller.js";
 import {
   WORKFLOW_STATUS,
@@ -28,6 +27,8 @@ import {
 import { distanceMeters } from "../utils/geoUtils.js";
 import { applyDeliveredSettlement } from "./orderSettlement.js";
 import { requireCanonicalOrderId } from "../utils/orderLookup.js";
+import { emitNotificationEvent } from "../modules/notifications/notification.emitter.js";
+import { NOTIFICATION_EVENTS } from "../modules/notifications/notification.constants.js";
 
 const DELIVERY_SEARCH_MAX_ATTEMPTS = () =>
   parseInt(process.env.DELIVERY_SEARCH_MAX_ATTEMPTS || "3", 10);
@@ -286,6 +287,13 @@ export async function sellerAcceptAtomic(sellerId, orderId) {
     deliveryBroadcastPayloadFromOrder(updated),
   );
 
+  emitNotificationEvent(NOTIFICATION_EVENTS.ORDER_CONFIRMED, {
+    orderId: updated.orderId,
+    customerId: updated.customer?._id || updated.customer,
+    userId: updated.customer?._id || updated.customer,
+    sellerId: updated.seller?._id || updated.seller,
+  });
+
   return updated;
 }
 
@@ -326,6 +334,14 @@ export async function sellerRejectAtomic(sellerId, orderId) {
   emitOrderStatusUpdate(order.orderId, {
     workflowStatus: WORKFLOW_STATUS.CANCELLED,
   }, order.customer);
+  emitNotificationEvent(NOTIFICATION_EVENTS.ORDER_CANCELLED, {
+    orderId: order.orderId,
+    customerId: order.customer,
+    userId: order.customer,
+    sellerId: order.seller,
+    customerMessage: "Your order was cancelled by the seller.",
+    sellerMessage: `Order #${order.orderId} was cancelled.`,
+  });
   return order;
 }
 
@@ -445,13 +461,11 @@ export async function deliveryAcceptAtomic(deliveryId, orderId, idempotencyKey) 
     }
   }
 
-  await Notification.create({
-    recipient: updated.seller,
-    recipientModel: "Seller",
-    title: "Delivery Partner Assigned",
-    message: `Delivery partner assigned to order #${orderId}.`,
-    type: "order",
-    data: { orderId: updated.orderId, mongoOrderId: updated._id },
+  emitNotificationEvent(NOTIFICATION_EVENTS.DELIVERY_ASSIGNED, {
+    orderId: updated.orderId,
+    deliveryId: deliveryOid,
+    customerId: updated.customer,
+    sellerId: updated.seller,
   });
 
   await retractDeliveryBroadcastForOrder(updated.orderId, deliveryOid);
@@ -499,17 +513,14 @@ export async function processSellerTimeoutJob({ orderId }) {
   await compensateOrderCancellation(updated, orderId);
 
   emitOrderStatusUpdate(orderId, { workflowStatus: WORKFLOW_STATUS.CANCELLED }, updated.customer);
-
-  if (updated.seller) {
-    await Notification.create({
-      recipient: updated.seller,
-      recipientModel: "Seller",
-      title: "Order Timed Out",
-      message: `Order #${orderId} was cancelled (seller timeout).`,
-      type: "order",
-      data: { orderId: updated.orderId, mongoOrderId: updated._id },
-    });
-  }
+  emitNotificationEvent(NOTIFICATION_EVENTS.ORDER_CANCELLED, {
+    orderId: updated.orderId,
+    customerId: updated.customer,
+    userId: updated.customer,
+    sellerId: updated.seller,
+    customerMessage: "Your order was cancelled because seller did not accept in time.",
+    sellerMessage: `Order #${updated.orderId} was cancelled due to timeout.`,
+  });
 }
 
 export async function processDeliveryTimeoutJob({ orderId, attempt }) {
@@ -588,17 +599,16 @@ export async function processDeliveryTimeoutJob({ orderId, attempt }) {
 
   await compensateOrderCancellation(updated, orderId);
   emitOrderStatusUpdate(orderId, { workflowStatus: WORKFLOW_STATUS.CANCELLED }, updated.customer);
-
-  if (updated.customer) {
-    await Notification.create({
-      recipient: updated.customer,
-      recipientModel: "Customer",
-      title: "Order Cancelled",
-      message: `Order #${orderId} was cancelled because no delivery partner was available.`,
-      type: "order",
-      data: { orderId: updated.orderId, mongoOrderId: updated._id },
-    });
-  }
+  emitNotificationEvent(NOTIFICATION_EVENTS.ORDER_CANCELLED, {
+    orderId: updated.orderId,
+    customerId: updated.customer,
+    userId: updated.customer,
+    sellerId: updated.seller,
+    customerMessage:
+      "Order was cancelled because no delivery partner was available.",
+    sellerMessage:
+      `Order #${updated.orderId} was cancelled because no delivery partner was available.`,
+  });
 }
 
 export async function customerCancelV2(customerId, orderId, reason) {
@@ -643,6 +653,14 @@ export async function customerCancelV2(customerId, orderId, reason) {
   await removeSellerTimeoutJob(orderId);
   await compensateOrderCancellation(updated, orderId);
   emitOrderStatusUpdate(orderId, { workflowStatus: WORKFLOW_STATUS.CANCELLED }, updated.customer);
+  emitNotificationEvent(NOTIFICATION_EVENTS.ORDER_CANCELLED, {
+    orderId: updated.orderId,
+    customerId: updated.customer,
+    userId: updated.customer,
+    sellerId: updated.seller,
+    customerMessage: "Your order has been cancelled successfully.",
+    sellerMessage: `Order #${updated.orderId} was cancelled by customer.`,
+  });
   return updated;
 }
 
@@ -718,6 +736,18 @@ export async function markArrivedAtStoreAtomic(deliveryId, orderId, lat, lng) {
     { workflowStatus: WORKFLOW_STATUS.PICKUP_READY },
     updated.customer,
   );
+  emitNotificationEvent(NOTIFICATION_EVENTS.ORDER_PACKED, {
+    orderId: updated.orderId,
+    customerId: updated.customer,
+    userId: updated.customer,
+    sellerId: updated.seller,
+    deliveryId: updated.deliveryBoy,
+  });
+  emitNotificationEvent(NOTIFICATION_EVENTS.ORDER_READY, {
+    orderId: updated.orderId,
+    deliveryId: updated.deliveryBoy,
+    sellerId: updated.seller,
+  });
   return updated;
 }
 
@@ -797,6 +827,13 @@ export async function confirmPickupAtomic(deliveryId, orderId, lat, lng) {
     },
     updated.customer,
   );
+  emitNotificationEvent(NOTIFICATION_EVENTS.OUT_FOR_DELIVERY, {
+    orderId: updated.orderId,
+    customerId: updated.customer,
+    userId: updated.customer,
+    deliveryId: updated.deliveryBoy,
+    sellerId: updated.seller,
+  });
   return updated;
 }
 
@@ -1018,5 +1055,12 @@ export async function verifyHandoffOtpAndDeliver(deliveryId, orderId, code) {
   await applyDeliveredSettlement(updated, orderId);
 
   emitOrderStatusUpdate(orderId, { workflowStatus: WORKFLOW_STATUS.DELIVERED }, updated.customer);
+  emitNotificationEvent(NOTIFICATION_EVENTS.ORDER_DELIVERED, {
+    orderId: updated.orderId,
+    customerId: updated.customer,
+    userId: updated.customer,
+    deliveryId: updated.deliveryBoy,
+    sellerId: updated.seller,
+  });
   return updated;
 }

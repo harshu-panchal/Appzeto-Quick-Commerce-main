@@ -114,7 +114,10 @@ async function checkQueueHealth() {
 
   try {
     const { sellerTimeoutQueue, deliveryTimeoutQueue } = await import("../queues/orderQueues.js");
-    const queueCandidates = [sellerTimeoutQueue, deliveryTimeoutQueue];
+    const queueCandidates = [
+      sellerTimeoutQueue,
+      deliveryTimeoutQueue,
+    ];
     for (const queue of queueCandidates) {
       if (typeof queue?.isReady === "function") {
         await queue.isReady();

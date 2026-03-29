@@ -115,4 +115,9 @@ export const customerApi = {
     axiosInstance.get("/maps/geocode", { params: { address, ...params } }),
   geocodePlaceId: (placeId, params = {}) =>
     axiosInstance.get("/maps/geocode", { params: { placeId, ...params } }),
+
+  // Push (FCM) test
+  testPushNotification: () => axiosInstance.post("/push/test"),
+  getTestPushNotificationStatus: (orderId) =>
+    axiosInstance.get(`/push/test-status/${encodeURIComponent(String(orderId || "").trim())}`),
 };

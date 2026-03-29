@@ -8,14 +8,21 @@
  */
 
 const VALID_ROLES = ['api', 'worker', 'scheduler', 'all'];
-const DEFAULT_ROLE = 'api';
+const DEFAULT_ROLE = 'all';
+const PRODUCTION_DEFAULT_ROLE = 'api';
+
+function getDefaultRole() {
+  return process.env.NODE_ENV === 'production'
+    ? PRODUCTION_DEFAULT_ROLE
+    : DEFAULT_ROLE;
+}
 
 /**
  * Get the current process role from environment
  * @returns {'api' | 'worker' | 'scheduler' | 'all'} The current process role
  */
 function getProcessRole() {
-  const configuredRole = process.env.APP_ROLE || process.env.PROCESS_ROLE || DEFAULT_ROLE;
+  const configuredRole = process.env.APP_ROLE || process.env.PROCESS_ROLE || getDefaultRole();
   const role = String(configuredRole).toLowerCase().trim();
   return role;
 }

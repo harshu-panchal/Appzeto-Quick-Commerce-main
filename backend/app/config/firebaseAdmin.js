@@ -7,23 +7,26 @@ let firebaseAdminApp = null;
 
 /**
  * Returns a firebase-admin app when FIREBASE_SERVICE_ACCOUNT (JSON string)
- * and FIREBASE_DATABASE_URL are set.
+ * is set. FIREBASE_DATABASE_URL is optional (required only for Realtime DB).
  */
 export const getFirebaseAdminApp = () => {
   if (firebaseAdminApp) return firebaseAdminApp;
 
   const json = process.env.FIREBASE_SERVICE_ACCOUNT;
   const databaseURL = process.env.FIREBASE_DATABASE_URL;
-  if (!json || !databaseURL) {
+  if (!json) {
     return null;
   }
 
   try {
     const serviceAccount = JSON.parse(json);
-    firebaseAdminApp = admin.initializeApp({
+    const config = {
       credential: admin.credential.cert(serviceAccount),
-      databaseURL,
-    });
+    };
+    if (databaseURL) {
+      config.databaseURL = databaseURL;
+    }
+    firebaseAdminApp = admin.initializeApp(config);
     return firebaseAdminApp;
   } catch (e) {
     console.warn("[Firebase] Init skipped:", e.message);

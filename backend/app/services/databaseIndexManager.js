@@ -78,6 +78,19 @@ const INDEX_DEFINITIONS = {
     { keys: { recipient: 1, recipientModel: 1, isRead: 1, createdAt: -1 }, options: { name: "recipient_model_read_created" } },
     { keys: { recipient: 1, createdAt: -1 }, options: { name: "recipient_created" } },
     { keys: { recipient: 1, createdAt: -1, _id: -1 }, options: { name: "recipient_created_tiebreak" } },
+    { keys: { userId: 1, role: 1, isRead: 1, createdAt: -1 }, options: { name: "user_role_read_created" } },
+    { keys: { role: 1, status: 1, createdAt: -1 }, options: { name: "role_status_created" } },
+    { keys: { dedupeKey: 1 }, options: { name: "dedupe_key_idx" } },
+  ],
+
+  pushtokens: [
+    { keys: { token: 1 }, options: { name: "token_unique", unique: true } },
+    { keys: { userId: 1, role: 1, isActive: 1, lastUsedAt: -1 }, options: { name: "user_role_active_lastused" } },
+    { keys: { userId: 1, role: 1, token: 1 }, options: { name: "user_role_token_unique", unique: true } },
+  ],
+
+  notificationpreferences: [
+    { keys: { userId: 1, role: 1 }, options: { name: "user_role_unique", unique: true } },
   ],
 
   checkoutgroups: [

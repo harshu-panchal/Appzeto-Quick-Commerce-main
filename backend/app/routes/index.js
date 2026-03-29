@@ -9,6 +9,7 @@ import wishlistRoute from "./wishlistRoutes.js";
 import orderRoute from "./orderRoutes.js";
 import paymentRoute from "./paymentRoutes.js";
 import notificationRoute from "./notificationRoutes.js";
+import pushRoute from "./pushRoutes.js";
 import ticketRoute from "./ticketRoutes.js";
 import reviewRoute from "./reviewRoutes.js";
 import faqRoute from "./faqRoutes.js";
@@ -20,6 +21,7 @@ import mapsRoute from "./mapsRoutes.js";
 import mediaRoute from "./mediaRoutes.js";
 import healthRoute from "./healthRoutes.js";
 import metricsRoute from "./metricsRoutes.js";
+import authOtpRoute from "../modules/otp/otp.routes.js";
 
 import express from "express";
 
@@ -49,6 +51,8 @@ const setupRoutes = (app) => {
     router.use("/", offerRoute);
     router.use("/", couponRoute);
     router.use("/notifications", notificationRoute);
+    router.use("/auth/otp", authOtpRoute);
+    router.use("/push", pushRoute);
     router.use("/tickets", ticketRoute);
     router.use("/reviews", reviewRoute);
     router.use("/admin/faqs", faqRoute);

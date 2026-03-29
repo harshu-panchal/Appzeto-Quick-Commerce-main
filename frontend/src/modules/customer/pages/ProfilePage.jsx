@@ -2,16 +2,82 @@ import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
     User, MapPin, Package, CreditCard, Wallet, ChevronRight,
-    LogOut, ShieldCheck, Heart, HelpCircle, Info, Edit2, ChevronLeft
+    LogOut, ShieldCheck, Heart, HelpCircle, Info, Edit2, ChevronLeft, Bell
 } from 'lucide-react';
 import { useAuth } from '@core/context/AuthContext';
 import { useSettings } from '@core/context/SettingsContext';
+import { customerApi } from '../services/customerApi';
+import { toast } from 'sonner';
+import { ensureFcmTokenRegistered, startForegroundPushListener } from '@core/firebase/pushClient';
+
+const TEST_PUSH_STATUS_POLL_INTERVAL_MS = 1500;
+const TEST_PUSH_STATUS_MAX_ATTEMPTS = 20;
 
 const ProfilePage = () => {
     const navigate = useNavigate();
-    const { user, logout } = useAuth();
+    const { user, role, logout } = useAuth();
     const { settings } = useSettings();
     const appName = settings?.appName || 'App';
+    const [isTestingPush, setIsTestingPush] = React.useState(false);
+
+    const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    const waitForTestPushResult = async (orderId) => {
+        for (let attempt = 0; attempt < TEST_PUSH_STATUS_MAX_ATTEMPTS; attempt += 1) {
+            const statusRes = await customerApi.getTestPushNotificationStatus(orderId);
+            const result = statusRes?.data?.result || {};
+            const status = String(result.status || '').trim().toLowerCase();
+
+            if (status === 'sent' || status === 'failed') {
+                return result;
+            }
+
+            if (attempt < TEST_PUSH_STATUS_MAX_ATTEMPTS - 1) {
+                await wait(TEST_PUSH_STATUS_POLL_INTERVAL_MS);
+            }
+        }
+        return null;
+    };
+
+    const handleTestPush = async () => {
+        if (isTestingPush) return;
+        setIsTestingPush(true);
+        try {
+            await ensureFcmTokenRegistered({ role, platform: 'web' });
+            await startForegroundPushListener();
+            const res = await customerApi.testPushNotification();
+            const orderId = res?.data?.result?.orderId || '';
+            if (!orderId) {
+                toast.success('Test push triggered');
+                return;
+            }
+
+            const statusResult = await waitForTestPushResult(orderId);
+            if (!statusResult) {
+                toast.message(`Test push processing (${orderId})`, {
+                    description: 'Notification delivery is taking longer than expected.',
+                });
+                return;
+            }
+
+            if (statusResult.status === 'sent') {
+                toast.success(`Test push sent (${orderId})`, {
+                    description: 'MongoDB status is marked as sent.',
+                });
+                return;
+            }
+
+            toast.error(`Test push failed (${orderId})`, {
+                description: String(statusResult.failureReason || 'Notification delivery failed.'),
+            });
+        } catch (error) {
+            toast.error('Failed to trigger test push', {
+                description: error?.response?.data?.message || error?.message || 'Unknown error',
+            });
+        } finally {
+            setIsTestingPush(false);
+        }
+    };
 
     return (
         <div className="min-h-screen bg-slate-50 pb-24 md:pb-8 font-sans">
@@ -23,6 +89,17 @@ const ProfilePage = () => {
                     <ChevronLeft size={22} className="text-slate-800" />
                 </button>
                 <h1 className="text-xl font-semibold text-slate-900 tracking-tight">My Profile</h1>
+                <div className="ml-auto flex items-center gap-2">
+                    <button
+                        type="button"
+                        onClick={handleTestPush}
+                        disabled={isTestingPush}
+                        title="Test push notification"
+                        className="w-10 h-10 flex items-center justify-center rounded-full transition-colors border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                        <Bell size={18} className={isTestingPush ? "text-slate-400" : "text-slate-700"} />
+                    </button>
+                </div>
             </div>
 
             <div className="max-w-2xl mx-auto px-4 pt-1 relative z-20 space-y-4">

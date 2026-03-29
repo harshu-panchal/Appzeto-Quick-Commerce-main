@@ -1,8 +1,10 @@
 import crypto from "crypto";
+import axios from "axios";
 import Customer from "../models/customer.js";
 import { generateOTP, useRealSMS } from "../utils/otp.js";
 import { getRedisClient } from "../config/redis.js";
 import { isValidE164Phone, maskPhone, normalizePhoneNumber } from "../utils/phone.js";
+import { buildMessage, toIndianNumber } from "../utils/smsHelpers.js";
 
 const OTP_EXPIRY_MINUTES = () => parseInt(process.env.OTP_EXPIRY_MINUTES || "5", 10);
 const OTP_RESEND_COOLDOWN_SECONDS = () =>
@@ -19,6 +21,8 @@ const OTP_VERIFY_LIMIT_WINDOW_SECONDS = () =>
   parseInt(process.env.OTP_VERIFY_LIMIT_WINDOW_SECONDS || "900", 10);
 const OTP_VERIFY_LIMIT_PER_WINDOW = () =>
   parseInt(process.env.OTP_VERIFY_LIMIT_PER_WINDOW || "20", 10);
+const SMS_INDIA_TIMEOUT_MS = () =>
+  parseInt(process.env.SMS_INDIA_HUB_TIMEOUT_MS || "10000", 10);
 
 function otpHashSecret() {
   return process.env.OTP_HASH_SECRET || process.env.JWT_SECRET || "unsafe-dev-secret";
@@ -72,6 +76,119 @@ function otpAuditLog(event, meta) {
       ...meta,
     }),
   );
+}
+
+function getSmsIndiaConfig() {
+  return {
+    apiKey: String(process.env.SMS_INDIA_HUB_API_KEY || "").trim(),
+    senderId: String(process.env.SMS_INDIA_HUB_SENDER_ID || "").trim(),
+    dltTemplateId: String(process.env.SMS_INDIA_HUB_DLT_TEMPLATE_ID || "").trim(),
+    gatewayId: String(process.env.SMS_INDIA_HUB_GWID || "2").trim(),
+    url: String(
+      process.env.SMS_INDIA_HUB_URL ||
+        "http://cloud.smsindiahub.in/vendorsms/pushsms.aspx",
+    ).trim(),
+  };
+}
+
+function normalizeProviderPayload(payload) {
+  return typeof payload === "string" ? payload : JSON.stringify(payload || {});
+}
+
+function parseSmsIndiaResponse(payload) {
+  const raw = normalizeProviderPayload(payload);
+  const trimmed = raw.trim();
+  const lower = trimmed.toLowerCase();
+
+  const directCode = trimmed.slice(0, 3);
+  if (/^\d{3}$/.test(directCode)) {
+    return { code: directCode, raw };
+  }
+
+  const xmlStatusMatch = trimmed.match(/<status>\s*([^<]+)\s*<\/status>/i);
+  if (xmlStatusMatch) {
+    const statusValue = String(xmlStatusMatch[1] || "").trim();
+    if (/^\d{3}$/.test(statusValue)) {
+      return { code: statusValue, raw };
+    }
+    if (["success", "ok", "done", "submitted"].includes(statusValue.toLowerCase())) {
+      return { code: "000", raw };
+    }
+  }
+
+  const jsonStatusMatch = trimmed.match(/"status"\s*:\s*"?(success|ok|done|submitted|000)"?/i);
+  if (jsonStatusMatch) {
+    return { code: "000", raw };
+  }
+
+  const matched = trimmed.match(/\b(\d{3})\b/);
+  if (matched) {
+    return { code: matched[1], raw };
+  }
+
+  if (
+    lower === "success" ||
+    lower === "ok" ||
+    lower === "done" ||
+    lower.startsWith("success#") ||
+    lower.startsWith("done#") ||
+    lower.includes("message submitted")
+  ) {
+    return { code: "000", raw };
+  }
+
+  return { code: null, raw };
+}
+
+function providerSnippet(raw) {
+  return String(raw || "").replace(/\s+/g, " ").trim().slice(0, 180);
+}
+
+async function dispatchCustomerOtpSms({ phone, otp }) {
+  const config = getSmsIndiaConfig();
+  const requiredConfig = {
+    apiKey: config.apiKey,
+    senderId: config.senderId,
+    url: config.url,
+  };
+  const missing = Object.entries(requiredConfig)
+    .filter(([, value]) => !value)
+    .map(([key]) => key);
+
+  if (missing.length > 0) {
+    const err = new Error(`Missing SMS India HUB config: ${missing.join(", ")}`);
+    err.statusCode = 500;
+    throw err;
+  }
+
+  const response = await axios.get(config.url, {
+    params: {
+      APIKey: config.apiKey,
+      msisdn: toIndianNumber(phone),
+      sid: config.senderId,
+      msg: buildMessage(otp),
+      fl: "0",
+      gwid: config.gatewayId,
+      ...(config.dltTemplateId ? { DLT_TE_ID: config.dltTemplateId } : {}),
+    },
+    timeout: SMS_INDIA_TIMEOUT_MS(),
+  });
+
+  const body = response.data;
+  const inlineErrorCode = body && typeof body === "object" ? body.ErrorCode : null;
+  const { code: providerCode, raw } = parseSmsIndiaResponse(body);
+  const effectiveCode = inlineErrorCode || providerCode;
+  if (effectiveCode !== "000") {
+    const err = new Error(
+      `SMS India HUB send failed with code ${effectiveCode || "unknown"}${raw ? `: ${providerSnippet(raw)}` : ""}`,
+    );
+    err.statusCode = 502;
+    err.providerCode = effectiveCode;
+    err.providerRaw = raw;
+    throw err;
+  }
+
+  return body;
 }
 
 export function normalizeAndValidatePhone(rawPhone) {
@@ -171,13 +288,13 @@ export async function issueCustomerOtp({
   await customer.save();
 
   if (useRealSMS()) {
+    await dispatchCustomerOtpSms({ phone, otp });
     otpAuditLog("customer_otp_sms_dispatched", {
       phone: maskPhone(phone),
       flow,
       ipAddress,
       mode: "real",
     });
-    // SMS provider integration should happen here.
   } else {
     otpAuditLog("customer_otp_mock_mode", {
       phone: maskPhone(phone),
