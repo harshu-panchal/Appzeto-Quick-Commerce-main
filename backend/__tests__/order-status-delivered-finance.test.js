@@ -56,6 +56,7 @@ jest.unstable_mockModule("../app/services/orderWorkflowService.js", () => ({
 }));
 
 jest.unstable_mockModule("../app/services/finance/orderFinanceService.js", () => ({
+  freezeFinancialSnapshot: jest.fn((order) => order),
   reverseOrderFinanceOnCancellation: jest.fn(),
 }));
 
@@ -117,4 +118,3 @@ describe("updateOrderStatus delivered finance ordering", () => {
     expect(callOrder).toEqual(["save", "settlement"]);
   });
 });
-

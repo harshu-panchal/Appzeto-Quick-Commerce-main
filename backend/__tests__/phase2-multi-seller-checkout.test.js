@@ -94,10 +94,10 @@ describe("Property 10: Seller Grouping", () => {
 // ─── Property 11: Checkout Group ID Generation ───────────────────────────────
 
 describe("Property 11: Checkout Group ID Generation", () => {
-  test("generated IDs match CG-{timestamp}-{hex} format", () => {
+  test("generated IDs match CHK-{sortable-token} format", () => {
     for (let i = 0; i < 100; i++) {
       const id = generateCheckoutGroupId();
-      expect(id).toMatch(/^CG-\d+-[0-9a-f]{6}$/);
+      expect(id).toMatch(/^CHK-[0-9A-Z]{26}$/);
     }
   });
 
@@ -106,10 +106,10 @@ describe("Property 11: Checkout Group ID Generation", () => {
     expect(ids.size).toBeGreaterThan(990);
   });
 
-  test("ID always starts with CG-", () => {
+  test("ID always starts with CHK-", () => {
     fc.assert(
       fc.property(fc.constant(null), () => {
-        expect(generateCheckoutGroupId().startsWith("CG-")).toBe(true);
+        expect(generateCheckoutGroupId().startsWith("CHK-")).toBe(true);
       }),
       { numRuns: 100 }
     );

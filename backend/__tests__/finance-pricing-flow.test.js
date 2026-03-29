@@ -154,6 +154,7 @@ describe("finance pricing flow", () => {
           name: "Apple",
           salePrice: 120,
           price: 125,
+          status: "active",
           mainImage: "apple.jpg",
           headerId: "cat-1",
           sellerId: "seller-1",

@@ -8,6 +8,7 @@
     "dev": "nodemon index.js",
     "start": "node index.js",
     "worker": "node worker.js",
+    "scheduler": "node scheduler.js",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
     "test:finance-flow": "node --experimental-vm-modules node_modules/jest/bin/jest.js --runInBand --testPathPatterns=finance-.*\\.test\\.js",
     "test:finance-e2e": "node --experimental-vm-modules node_modules/jest/bin/jest.js --runInBand --detectOpenHandles --testPathPatterns=finance-api-e2e\\.test\\.js",
@@ -16,6 +17,10 @@
   "jest": {
     "testEnvironment": "node",
     "transform": {},
+    "openHandlesTimeout": 5000,
+    "setupFiles": [
+      "<rootDir>/__tests__/setup/quietConsole.bootstrap.js"
+    ],
     "testMatch": [
       "**/__tests__/**/*.test.js"
     ]

@@ -1,5 +1,6 @@
 import { getRedisClient } from "../config/redis.js";
 import * as logger from "./logger.js";
+import { incrementCounter } from "./metrics.js";
 
 /**
  * Cache Service
@@ -12,6 +13,7 @@ import * as logger from "./logger.js";
 // Configuration constants
 const CACHE_ENABLED = process.env.CACHE_ENABLED !== "false";
 const CACHE_INVALIDATION_CHANNEL = "cache:invalidate";
+const CACHE_KEY_VERSION = String(process.env.CACHE_KEY_VERSION || "").trim();
 
 // TTL configuration (seconds)
 const TTL_CONFIG = {
@@ -31,10 +33,30 @@ const TTL_CONFIG = {
  * @returns {string} Namespaced cache key
  */
 export function buildKey(service, entity, identifier = "") {
+  const prefix = CACHE_KEY_VERSION
+    ? `cache:${CACHE_KEY_VERSION}:${service}:${entity}`
+    : `cache:${service}:${entity}`;
   if (identifier) {
-    return `cache:${service}:${entity}:${identifier}`;
+    return `${prefix}:${identifier}`;
   }
-  return `cache:${service}:${entity}`;
+  return prefix;
+}
+
+function labelsFromKey(key = "") {
+  const parts = String(key || "").split(":");
+  if (parts.length < 3) {
+    return { service: "unknown", entity: "unknown" };
+  }
+  if (parts.length >= 5 && parts[1] === CACHE_KEY_VERSION && CACHE_KEY_VERSION) {
+    return {
+      service: parts[2] || "unknown",
+      entity: parts[3] || "unknown",
+    };
+  }
+  return {
+    service: parts[1] || "unknown",
+    entity: parts[2] || "unknown",
+  };
 }
 
 /**
@@ -53,14 +75,17 @@ export async function get(key) {
     
     if (!data) {
       logger.debug(`[Cache] Miss: ${key}`);
+      incrementCounter("cache_miss_total", labelsFromKey(key));
       return null;
     }
     
     logger.debug(`[Cache] Hit: ${key}`);
+    incrementCounter("cache_hit_total", labelsFromKey(key));
     return JSON.parse(data);
     
   } catch (error) {
     logger.error(`[Cache] Error getting key ${key}:`, error);
+    incrementCounter("cache_error_total", { operation: "get", ...labelsFromKey(key) });
     // Graceful fallback: return null to trigger database query
     return null;
   }
@@ -84,9 +109,11 @@ export async function set(key, value, ttlSeconds) {
     
     await redis.setex(key, ttlSeconds, serialized);
     logger.debug(`[Cache] Set: ${key}, TTL: ${ttlSeconds}s`);
+    incrementCounter("cache_set_total", labelsFromKey(key));
     
   } catch (error) {
     logger.error(`[Cache] Error setting key ${key}:`, error);
+    incrementCounter("cache_error_total", { operation: "set", ...labelsFromKey(key) });
     // Graceful fallback: don't throw, just log
   }
 }
@@ -105,9 +132,11 @@ export async function del(key) {
     const redis = getRedisClient();
     await redis.del(key);
     logger.debug(`[Cache] Deleted: ${key}`);
+    incrementCounter("cache_delete_total", labelsFromKey(key));
     
   } catch (error) {
     logger.error(`[Cache] Error deleting key ${key}:`, error);
+    incrementCounter("cache_error_total", { operation: "del", ...labelsFromKey(key) });
     // Graceful fallback: don't throw, just log
   }
 }
@@ -198,17 +227,28 @@ export async function invalidate(key) {
   
   try {
     const redis = getRedisClient();
+    const patterns = [key];
+    if (
+      CACHE_KEY_VERSION &&
+      String(key || "").startsWith("cache:") &&
+      !String(key || "").startsWith(`cache:${CACHE_KEY_VERSION}:`)
+    ) {
+      patterns.push(String(key).replace(/^cache:/, `cache:${CACHE_KEY_VERSION}:`));
+    }
     
     // Delete the key(s)
-    if (key.includes("*")) {
-      await delPattern(key);
-    } else {
-      await del(key);
+    for (const candidate of patterns) {
+      if (candidate.includes("*")) {
+        await delPattern(candidate);
+      } else {
+        await del(candidate);
+      }
     }
     
     // Publish invalidation event to all instances
     const message = JSON.stringify({
-      key,
+      key: patterns[0],
+      patterns,
       timestamp: Date.now(),
     });
     

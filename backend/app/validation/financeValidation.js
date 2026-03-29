@@ -6,12 +6,14 @@ const locationSchema = Joi.object({
 });
 
 const orderItemSchema = Joi.object({
-  product: Joi.string().required(),
+  product: Joi.string().optional(),
+  productId: Joi.string().optional(),
+  id: Joi.string().optional(),
   name: Joi.string().allow("", null),
   quantity: Joi.number().integer().min(1).required(),
   price: Joi.number().min(0).optional(),
   image: Joi.string().allow("", null),
-});
+}).or("product", "productId", "id");
 
 export const checkoutPreviewSchema = Joi.object({
   items: Joi.array().items(orderItemSchema).min(1).required(),

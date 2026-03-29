@@ -49,6 +49,22 @@ const sellerSchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
+    locality: {
+      type: String,
+      trim: true,
+    },
+    pincode: {
+      type: String,
+      trim: true,
+    },
+    city: {
+      type: String,
+      trim: true,
+    },
+    state: {
+      type: String,
+      trim: true,
+    },
 
     documents: {
       tradeLicense: { type: String, trim: true },
@@ -65,6 +81,16 @@ const sellerSchema = new mongoose.Schema(
     },
 
     isVerified: {
+      type: Boolean,
+      default: false,
+    },
+
+    emailVerified: {
+      type: Boolean,
+      default: false,
+    },
+
+    phoneVerified: {
       type: Boolean,
       default: false,
     },
@@ -115,8 +141,6 @@ const sellerSchema = new mongoose.Schema(
 
 sellerSchema.index({ location: "2dsphere" });
 sellerSchema.index({ isActive: 1, isVerified: 1 });
-sellerSchema.index({ email: 1 }, { unique: true });
-sellerSchema.index({ phone: 1 }, { unique: true });
 
 // Hash password before saving
 sellerSchema.pre("save", async function (next) {

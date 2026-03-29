@@ -1,359 +1,466 @@
-/**
- * Media Service
- * 
- * Provides signed URL generation for direct client-to-Cloudinary uploads,
- * upload confirmation, and media management.
- * 
- * @module services/mediaService
- */
+import crypto from "crypto";
+import { v2 as cloudinary } from "cloudinary";
+import MediaMetadata from "../models/mediaMetadata.js";
+import logger from "./logger.js";
 
-import { v2 as cloudinary } from 'cloudinary';
-import { v4 as uuidv4 } from 'uuid';
-import crypto from 'crypto';
-import MediaMetadata from '../models/mediaMetadata.js';
-import logger from './logger.js';
+function getMaxUploadBytes() {
+  const raw = parseInt(process.env.MEDIA_MAX_FILE_SIZE || "10485760", 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : 10485760;
+}
 
-// Configure Cloudinary
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET
-});
+function getSignedUrlExpirySeconds() {
+  const raw = parseInt(process.env.MEDIA_SIGNED_URL_EXPIRY || "900", 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : 900;
+}
 
-/**
- * Check if signed uploads are enabled
- * @returns {boolean}
- */
+function getAllowedMimeTypes() {
+  return (
+    process.env.MEDIA_ALLOWED_MIME_TYPES ||
+    "image/jpeg,image/png,image/webp,image/gif,application/pdf"
+  )
+    .split(",")
+    .map((mime) => mime.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+const ENTITY_FOLDER_MAP = {
+  product: "products",
+  profile: "users",
+  category: "categories",
+  offer: "offers",
+  banner: "banners",
+  document: "docs",
+  other: "misc",
+};
+
+const RESOURCE_TYPE_MAP = {
+  image: "image",
+  document: "raw",
+  raw: "raw",
+};
+
 function isSignedUploadsEnabled() {
   const enabled = process.env.ENABLE_SIGNED_UPLOADS;
-  return enabled === undefined || enabled === 'true' || enabled === '1';
+  return enabled === undefined || enabled === "true" || enabled === "1";
 }
 
-/**
- * Validate Cloudinary configuration
- * @throws {Error} if configuration is missing
- */
-function validateCloudinaryConfig() {
-  if (!process.env.CLOUDINARY_CLOUD_NAME || 
-      !process.env.CLOUDINARY_API_KEY || 
-      !process.env.CLOUDINARY_API_SECRET) {
-    throw new Error(
-      'Cloudinary configuration is missing. Please set CLOUDINARY_CLOUD_NAME, ' +
-      'CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET environment variables.'
+function storageProvider() {
+  return String(process.env.STORAGE_PROVIDER || "cloudinary").trim().toLowerCase();
+}
+
+function validateStorageConfig() {
+  if (storageProvider() !== "cloudinary") {
+    const err = new Error("Unsupported storage provider configuration");
+    err.statusCode = 500;
+    throw err;
+  }
+  if (
+    !process.env.CLOUDINARY_CLOUD_NAME ||
+    !process.env.CLOUDINARY_API_KEY ||
+    !process.env.CLOUDINARY_API_SECRET
+  ) {
+    const err = new Error(
+      "Cloudinary configuration is missing. Set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET.",
     );
+    err.statusCode = 503;
+    throw err;
   }
 }
 
-/**
- * Generate unique public_id for upload
- * @param {string} folder - Cloudinary folder path
- * @returns {string}
- */
-function generatePublicId(folder) {
-  const uuid = uuidv4();
-  return `${folder}/${uuid}`;
+function configureCloudinary() {
+  cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
+  });
 }
 
-/**
- * Generate Cloudinary signature for upload
- * @param {Object} params - Upload parameters
- * @param {string} apiSecret - Cloudinary API secret
- * @returns {string}
- */
-function generateSignature(params, apiSecret) {
-  // Sort parameters alphabetically
-  const sortedParams = Object.keys(params)
-    .sort()
-    .map(key => `${key}=${params[key]}`)
-    .join('&');
-  
-  // Create SHA1 hash
-  return crypto
-    .createHash('sha1')
-    .update(sortedParams + apiSecret)
-    .digest('hex');
+function normalizeExtension(rawExtension = "") {
+  return String(rawExtension || "")
+    .trim()
+    .replace(/^\./, "")
+    .toLowerCase();
 }
 
-/**
- * Generate signed upload URL for Cloudinary
- * @param {Object} options - Upload options
- * @param {string} options.userId - User ID requesting upload
- * @param {string} options.entityType - Entity type (product, profile, etc.)
- * @param {string} options.folder - Cloudinary folder path
- * @param {Object} options.transformations - Optional transformations
- * @returns {Promise<Object>} Signed upload URL and metadata
- */
-async function generateSignedUploadURL(options) {
-  try {
-    validateCloudinaryConfig();
-    
-    const {
-      userId,
-      entityType = 'other',
-      folder = 'quick-commerce/uploads',
-      transformations = {}
-    } = options;
-    
-    if (!userId) {
-      throw new Error('userId is required');
-    }
-    
-    // Generate unique public_id
-    const publicId = generatePublicId(folder);
-    
-    // Get current timestamp (in seconds)
-    const timestamp = Math.floor(Date.now() / 1000);
-    
-    // Calculate expiry (15 minutes from now)
-    const expirySeconds = parseInt(process.env.MEDIA_SIGNED_URL_EXPIRY || '900', 10);
-    const expiresAt = new Date((timestamp + expirySeconds) * 1000);
-    
-    // Get constraints from environment
-    const maxFileSize = parseInt(process.env.MEDIA_MAX_FILE_SIZE || '5242880', 10); // 5MB default
-    const allowedFormats = (process.env.MEDIA_ALLOWED_FORMATS || 'jpg,png,webp').split(',');
-    
-    // Build upload parameters
-    const uploadParams = {
+function sanitizeEntityType(entityType = "other") {
+  const normalized = String(entityType || "other").trim().toLowerCase();
+  return ENTITY_FOLDER_MAP[normalized] ? normalized : "other";
+}
+
+function normalizeResourceType(resourceType = "image", mimeType = "") {
+  const normalized = String(resourceType || "").trim().toLowerCase();
+  if (RESOURCE_TYPE_MAP[normalized]) {
+    return normalized === "document" ? "document" : normalized;
+  }
+  if (String(mimeType || "").toLowerCase() === "application/pdf") {
+    return "document";
+  }
+  return "image";
+}
+
+function validateUploadRequest({
+  mimeType,
+  fileSize,
+  extension,
+  resourceType,
+}) {
+  const allowedMimeTypes = getAllowedMimeTypes();
+  const maxUploadBytes = getMaxUploadBytes();
+  const normalizedMime = String(mimeType || "").trim().toLowerCase();
+  const size = Number(fileSize || 0);
+  const ext = normalizeExtension(extension);
+
+  if (!normalizedMime || !allowedMimeTypes.includes(normalizedMime)) {
+    const err = new Error("Unsupported MIME type for upload intent");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  if (!Number.isFinite(size) || size <= 0 || size > maxUploadBytes) {
+    const err = new Error(`Invalid file size. Maximum allowed is ${maxUploadBytes} bytes`);
+    err.statusCode = 400;
+    throw err;
+  }
+
+  if (!ext || !/^[a-z0-9]+$/.test(ext)) {
+    const err = new Error("Invalid file extension");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const normalizedResourceType = normalizeResourceType(resourceType, normalizedMime);
+  const isDocument = normalizedResourceType === "document";
+  const isImage = normalizedResourceType === "image";
+  if (isDocument && normalizedMime !== "application/pdf") {
+    const err = new Error("Document uploads currently support PDF only");
+    err.statusCode = 400;
+    throw err;
+  }
+  if (isImage && !normalizedMime.startsWith("image/")) {
+    const err = new Error("Image resource type requires an image MIME type");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  return {
+    mimeType: normalizedMime,
+    fileSize: size,
+    extension: ext,
+    resourceType: normalizedResourceType,
+  };
+}
+
+function buildObjectKey({ entityType, resourceType, userId, extension }) {
+  const folder = ENTITY_FOLDER_MAP[entityType] || ENTITY_FOLDER_MAP.other;
+  const day = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  const suffix = crypto.randomUUID().replace(/-/g, "").slice(0, 20);
+  const resourceFolder = resourceType === "document" ? "docs" : "images";
+  return `quick-commerce/${folder}/${resourceFolder}/${day}/${userId}-${suffix}.${extension}`;
+}
+
+function buildIntentId() {
+  return `upl_${crypto.randomUUID().replace(/-/g, "")}`;
+}
+
+function buildUploadFolderFromObjectKey(objectKey) {
+  const parts = String(objectKey || "").split("/");
+  if (parts.length <= 1) return "quick-commerce/uploads";
+  return parts.slice(0, -1).join("/");
+}
+
+function buildCloudinarySignedPayload({
+  objectKey,
+  resourceType,
+  expiresInSeconds,
+}) {
+  configureCloudinary();
+  const cloudResourceType = RESOURCE_TYPE_MAP[resourceType] || "image";
+  const timestamp = Math.floor(Date.now() / 1000);
+  const folder = buildUploadFolderFromObjectKey(objectKey);
+  const signatureParams = {
+    timestamp,
+    public_id: objectKey,
+    folder,
+    resource_type: cloudResourceType,
+  };
+  const signature = cloudinary.utils.api_sign_request(
+    signatureParams,
+    process.env.CLOUDINARY_API_SECRET,
+  );
+  const uploadUrl = `https://api.cloudinary.com/v1_1/${process.env.CLOUDINARY_CLOUD_NAME}/${cloudResourceType}/upload`;
+  const expiresAt = new Date((timestamp + expiresInSeconds) * 1000);
+  return {
+    uploadUrl,
+    uploadFields: {
+      api_key: process.env.CLOUDINARY_API_KEY,
       timestamp,
-      public_id: publicId,
-      folder,
-      resource_type: 'auto'
-    };
-    
-    // Add transformations if provided
-    if (transformations.eager && Array.isArray(transformations.eager)) {
-      uploadParams.eager = transformations.eager
-        .map(t => {
-          const parts = [];
-          if (t.width) parts.push(`w_${t.width}`);
-          if (t.height) parts.push(`h_${t.height}`);
-          if (t.crop) parts.push(`c_${t.crop}`);
-          return parts.join(',');
-        })
-        .join('|');
-    }
-    
-    // Generate signature
-    const signature = generateSignature(uploadParams, process.env.CLOUDINARY_API_SECRET);
-    
-    // Build upload URL
-    const uploadUrl = `https://api.cloudinary.com/v1_1/${process.env.CLOUDINARY_CLOUD_NAME}/image/upload`;
-    
-    logger.info('Generated signed upload URL', {
-      userId,
-      entityType,
-      publicId,
-      folder,
-      expiresAt
-    });
-    
-    return {
-      uploadUrl,
-      publicId,
       signature,
-      timestamp,
-      apiKey: process.env.CLOUDINARY_API_KEY,
+      public_id: objectKey,
       folder,
-      expiresAt: expiresAt.toISOString(),
-      constraints: {
-        maxFileSize,
-        allowedFormats
-      }
-    };
-  } catch (error) {
-    logger.error('Failed to generate signed upload URL', {
-      error: error.message,
-      userId: options.userId
-    });
-    throw error;
-  }
+      resource_type: cloudResourceType,
+    },
+    expiresAt,
+  };
 }
 
-/**
- * Confirm upload completion and persist metadata
- * @param {Object} metadata - Upload metadata from client
- * @param {string} metadata.publicId - Cloudinary public_id
- * @param {string} metadata.secureUrl - Cloudinary secure_url
- * @param {string} metadata.resourceType - Resource type (image, video, raw)
- * @param {string} metadata.format - File format
- * @param {number} metadata.width - Image width
- * @param {number} metadata.height - Image height
- * @param {number} metadata.bytes - File size in bytes
- * @param {string} metadata.uploadedBy - User ID who uploaded
- * @param {string} metadata.uploadedByModel - Model name (Customer, Seller, Admin)
- * @param {string} metadata.entityType - Entity type
- * @param {string} metadata.entityId - Entity ID (optional)
- * @returns {Promise<Object>} Media record
- */
+async function createUploadIntent({
+  userId,
+  uploadedByModel,
+  entityType = "other",
+  entityId = null,
+  resourceType = "image",
+  mimeType,
+  fileSize,
+  extension,
+  tags = [],
+}) {
+  validateStorageConfig();
+  if (!isSignedUploadsEnabled()) {
+    const err = new Error("Signed uploads are disabled");
+    err.statusCode = 503;
+    throw err;
+  }
+  if (!userId || !uploadedByModel) {
+    const err = new Error("userId and uploadedByModel are required");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const normalized = validateUploadRequest({
+    mimeType,
+    fileSize,
+    extension,
+    resourceType,
+  });
+  const safeEntityType = sanitizeEntityType(entityType);
+  const objectKey = buildObjectKey({
+    entityType: safeEntityType,
+    resourceType: normalized.resourceType,
+    userId: String(userId),
+    extension: normalized.extension,
+  });
+  const intentId = buildIntentId();
+  const signedPayload = buildCloudinarySignedPayload({
+    objectKey,
+    resourceType: normalized.resourceType,
+    expiresInSeconds: getSignedUrlExpirySeconds(),
+  });
+
+  const record = await MediaMetadata.create({
+    intentId,
+    provider: "cloudinary",
+    status: "pending",
+    objectKey,
+    publicId: objectKey,
+    secureUrl: "",
+    resourceType: normalized.resourceType === "document" ? "raw" : "image",
+    format: normalized.extension,
+    mimeType: normalized.mimeType,
+    extension: normalized.extension,
+    bytes: 0,
+    bytesExpected: normalized.fileSize,
+    uploadedBy: userId,
+    uploadedByModel,
+    entityType: safeEntityType,
+    entityId: entityId || undefined,
+    folder: buildUploadFolderFromObjectKey(objectKey),
+    tags: Array.isArray(tags) ? tags : [],
+    expiresAt: signedPayload.expiresAt,
+  });
+
+  logger.info("Media upload intent created", {
+    intentId,
+    objectKey,
+    resourceType: normalized.resourceType,
+    uploadedByModel,
+    userId,
+  });
+
+  return {
+    intentId: record.intentId,
+    provider: record.provider,
+    objectKey: record.objectKey,
+    publicId: record.publicId,
+    uploadUrl: signedPayload.uploadUrl,
+    uploadFields: signedPayload.uploadFields,
+    expiresAt: signedPayload.expiresAt.toISOString(),
+    constraints: {
+      maxFileSize: getMaxUploadBytes(),
+      allowedMimeTypes: getAllowedMimeTypes(),
+      resourceType: normalized.resourceType,
+    },
+  };
+}
+
 async function confirmUpload(metadata) {
-  try {
-    const {
-      publicId,
-      secureUrl,
-      resourceType = 'image',
-      format,
-      width,
-      height,
-      bytes,
-      uploadedBy,
-      uploadedByModel,
-      entityType,
-      entityId,
-      folder,
-      tags = []
-    } = metadata;
-    
-    // Validate required fields
-    if (!publicId || !secureUrl || !format || !bytes || !uploadedBy || !uploadedByModel) {
-      throw new Error('Missing required upload metadata fields');
-    }
-    
-    // Validate public_id format
-    if (!MediaMetadata.validatePublicId(publicId)) {
-      throw new Error('Invalid public_id format. Expected format: {folder}/{uuid}');
-    }
-    
-    // Check if already confirmed
-    const existing = await MediaMetadata.findOne({ publicId });
-    if (existing) {
-      throw new Error('Upload already confirmed for this public_id');
-    }
-    
-    // Verify resource exists in Cloudinary
-    try {
-      await cloudinary.api.resource(publicId, { resource_type: resourceType });
-    } catch (cloudinaryError) {
-      if (cloudinaryError.http_code === 404) {
-        throw new Error('Resource not found in Cloudinary');
-      }
-      throw cloudinaryError;
-    }
-    
-    // Create media metadata record
-    const mediaRecord = await MediaMetadata.create({
-      publicId,
-      secureUrl,
-      resourceType,
-      format: format.toLowerCase(),
-      width,
-      height,
-      bytes,
-      uploadedBy,
-      uploadedByModel,
-      entityType,
-      entityId,
-      folder,
-      tags
-    });
-    
-    logger.info('Upload confirmed successfully', {
-      publicId,
-      uploadedBy,
-      uploadedByModel,
-      entityType,
-      bytes
-    });
-    
-    // Return media record with thumbnail URL
-    const thumbnailUrl = mediaRecord.getTransformedUrl({
-      width: 200,
-      height: 200,
-      crop: 'thumb'
-    });
-    
+  const {
+    intentId,
+    publicId,
+    secureUrl,
+    resourceType = "image",
+    format,
+    mimeType,
+    width,
+    height,
+    bytes,
+    etag = null,
+    checksum = null,
+    uploadedBy,
+    uploadedByModel,
+    entityType,
+    entityId,
+    folder,
+    tags = [],
+  } = metadata || {};
+
+  let mediaRecord = null;
+  if (intentId) {
+    mediaRecord = await MediaMetadata.findOne({ intentId });
+  } else if (publicId) {
+    mediaRecord = await MediaMetadata.findOne({ publicId });
+  }
+
+  if (!mediaRecord) {
+    const err = new Error("Upload intent not found");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  if (mediaRecord.status === "confirmed") {
     return {
       _id: mediaRecord._id,
+      intentId: mediaRecord.intentId,
       publicId: mediaRecord.publicId,
+      objectKey: mediaRecord.objectKey,
       secureUrl: mediaRecord.secureUrl,
-      thumbnailUrl,
-      createdAt: mediaRecord.createdAt
+      status: mediaRecord.status,
+      createdAt: mediaRecord.createdAt,
     };
-  } catch (error) {
-    logger.error('Failed to confirm upload', {
-      error: error.message,
-      publicId: metadata.publicId
-    });
-    throw error;
   }
+
+  if (mediaRecord.expiresAt && mediaRecord.expiresAt.getTime() < Date.now()) {
+    const err = new Error("Upload intent has expired");
+    err.statusCode = 410;
+    throw err;
+  }
+
+  if (publicId && publicId !== mediaRecord.publicId) {
+    const err = new Error("Upload confirmation publicId does not match intent");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const resolvedSecureUrl = String(secureUrl || "").trim();
+  if (!resolvedSecureUrl) {
+    const err = new Error("secureUrl is required to confirm upload");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const normalizedResourceType = normalizeResourceType(resourceType, mimeType || mediaRecord.mimeType);
+  const normalizedFormat = normalizeExtension(format || mediaRecord.extension || mediaRecord.format);
+  const uploadedBytes = Number(bytes || mediaRecord.bytesExpected || 0);
+  const maxUploadBytes = getMaxUploadBytes();
+  if (!Number.isFinite(uploadedBytes) || uploadedBytes <= 0) {
+    const err = new Error("Uploaded file size is required");
+    err.statusCode = 400;
+    throw err;
+  }
+  if (uploadedBytes > maxUploadBytes) {
+    const err = new Error(`Uploaded file exceeds max size of ${maxUploadBytes} bytes`);
+    err.statusCode = 400;
+    throw err;
+  }
+
+  mediaRecord.status = "confirmed";
+  mediaRecord.publicId = mediaRecord.publicId || publicId;
+  mediaRecord.objectKey = mediaRecord.objectKey || mediaRecord.publicId;
+  mediaRecord.secureUrl = resolvedSecureUrl;
+  mediaRecord.resourceType = normalizedResourceType === "document" ? "raw" : "image";
+  mediaRecord.format = normalizedFormat || mediaRecord.format || "";
+  mediaRecord.mimeType = String(mimeType || mediaRecord.mimeType || "").toLowerCase() || null;
+  mediaRecord.extension = normalizedFormat || mediaRecord.extension || null;
+  mediaRecord.width = Number.isFinite(Number(width)) ? Number(width) : mediaRecord.width;
+  mediaRecord.height = Number.isFinite(Number(height)) ? Number(height) : mediaRecord.height;
+  mediaRecord.bytes = uploadedBytes;
+  mediaRecord.etag = etag || mediaRecord.etag;
+  mediaRecord.checksum = checksum || mediaRecord.checksum;
+  mediaRecord.expiresAt = null;
+  mediaRecord.confirmedAt = new Date();
+
+  if (uploadedBy) mediaRecord.uploadedBy = uploadedBy;
+  if (uploadedByModel) mediaRecord.uploadedByModel = uploadedByModel;
+  if (entityType) mediaRecord.entityType = sanitizeEntityType(entityType);
+  if (entityId) mediaRecord.entityId = entityId;
+  if (folder) mediaRecord.folder = folder;
+  if (Array.isArray(tags) && tags.length > 0) mediaRecord.tags = tags;
+
+  await mediaRecord.save();
+
+  logger.info("Media upload confirmed", {
+    intentId: mediaRecord.intentId,
+    publicId: mediaRecord.publicId,
+    uploadedBy: String(mediaRecord.uploadedBy || ""),
+  });
+
+  const thumbnailUrl = mediaRecord.getTransformedUrl({
+    width: 200,
+    height: 200,
+    crop: "thumb",
+  });
+
+  return {
+    _id: mediaRecord._id,
+    intentId: mediaRecord.intentId,
+    publicId: mediaRecord.publicId,
+    objectKey: mediaRecord.objectKey,
+    secureUrl: mediaRecord.secureUrl,
+    thumbnailUrl,
+    bytes: mediaRecord.bytes,
+    mimeType: mediaRecord.mimeType,
+    status: mediaRecord.status,
+    createdAt: mediaRecord.createdAt,
+  };
 }
 
-/**
- * Get media URL with optional transformations
- * @param {string} publicId - Cloudinary public ID
- * @param {Object} transformations - Optional transformations
- * @returns {string}
- */
 function getMediaURL(publicId, transformations = {}) {
-  if (!publicId) {
-    return '';
-  }
-  
-  try {
-    return cloudinary.url(publicId, {
-      secure: true,
-      ...transformations
-    });
-  } catch (error) {
-    logger.error('Failed to generate media URL', {
-      error: error.message,
-      publicId
-    });
-    return '';
-  }
+  if (!publicId) return "";
+  configureCloudinary();
+  return cloudinary.url(publicId, {
+    secure: true,
+    ...transformations,
+  });
 }
 
-/**
- * Delete media resource (soft delete)
- * @param {string} publicId - Cloudinary public ID
- * @param {string} userId - User ID requesting deletion
- * @param {string} userModel - User model name
- * @returns {Promise<void>}
- */
 async function deleteMedia(publicId, userId, userModel) {
-  try {
-    // Find media record
-    const media = await MediaMetadata.findOne({ publicId, isDeleted: false });
-    
-    if (!media) {
-      throw new Error('Media not found or already deleted');
-    }
-    
-    // Check ownership
-    if (media.uploadedBy.toString() !== userId || media.uploadedByModel !== userModel) {
-      throw new Error('User does not own this media');
-    }
-    
-    // Soft delete
-    await media.softDelete();
-    
-    logger.info('Media deleted successfully', {
-      publicId,
-      userId,
-      userModel
-    });
-  } catch (error) {
-    logger.error('Failed to delete media', {
-      error: error.message,
-      publicId,
-      userId
-    });
-    throw error;
+  const media = await MediaMetadata.findOne({
+    $or: [{ publicId }, { objectKey: publicId }],
+    isDeleted: false,
+  });
+  if (!media) {
+    const err = new Error("Media not found or already deleted");
+    err.statusCode = 404;
+    throw err;
   }
+  if (
+    String(media.uploadedBy || "") !== String(userId || "") ||
+    media.uploadedByModel !== userModel
+  ) {
+    const err = new Error("User does not own this media");
+    err.statusCode = 403;
+    throw err;
+  }
+  await media.softDelete();
 }
 
-/**
- * Legacy upload function (backward compatibility)
- * Uploads file buffer directly to Cloudinary
- * @param {Buffer} fileBuffer - File buffer
- * @param {string} folder - Cloudinary folder
- * @returns {Promise<string>} Secure URL
- */
-async function uploadToCloudinary(fileBuffer, folder = 'categories') {
+async function uploadToCloudinary(fileBuffer, folder = "categories") {
+  validateStorageConfig();
+  configureCloudinary();
   return new Promise((resolve, reject) => {
     const uploadStream = cloudinary.uploader.upload_stream(
       {
         folder,
-        resource_type: 'auto'
+        resource_type: "auto",
       },
       (error, result) => {
         if (error) {
@@ -361,17 +468,54 @@ async function uploadToCloudinary(fileBuffer, folder = 'categories') {
         } else {
           resolve(result.secure_url);
         }
-      }
+      },
     );
     uploadStream.end(fileBuffer);
   });
 }
 
+async function generateSignedUploadURL(options) {
+  const {
+    userId,
+    uploadedByModel = "Customer",
+    entityType = "other",
+    entityId = null,
+    resourceType = "image",
+    mimeType,
+    fileSize,
+    extension,
+    tags = [],
+  } = options || {};
+
+  return createUploadIntent({
+    userId,
+    uploadedByModel,
+    entityType,
+    entityId,
+    resourceType,
+    mimeType,
+    fileSize,
+    extension,
+    tags,
+  });
+}
+
 export {
+  createUploadIntent,
   generateSignedUploadURL,
   confirmUpload,
   getMediaURL,
   deleteMedia,
   uploadToCloudinary,
-  isSignedUploadsEnabled
+  isSignedUploadsEnabled,
+};
+
+export default {
+  createUploadIntent,
+  generateSignedUploadURL,
+  confirmUpload,
+  getMediaURL,
+  deleteMedia,
+  uploadToCloudinary,
+  isSignedUploadsEnabled,
 };

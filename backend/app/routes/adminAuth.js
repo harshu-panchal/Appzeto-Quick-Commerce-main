@@ -32,6 +32,7 @@ import {
     getUsers,
     getUserById,
     getSellers,
+    getSellerLocations,
     getPlatformSettings,
     updatePlatformSettings
 } from "../controller/adminController.js";
@@ -147,6 +148,7 @@ router.put(
 router.get("/users", verifyToken, allowRoles("admin"), getUsers);
 router.get("/users/:id", verifyToken, allowRoles("admin"), getUserById);
 router.get("/sellers", verifyToken, allowRoles("admin"), getSellers);
+router.get("/sellers/locations", verifyToken, allowRoles("admin"), getSellerLocations);
 router.get("/sellers/active", verifyToken, allowRoles("admin"), getActiveSellers);
 router.get("/sellers/pending", verifyToken, allowRoles("admin"), getPendingSellers);
 router.patch("/sellers/approve/:id", verifyToken, allowRoles("admin"), approveSellerApplication);

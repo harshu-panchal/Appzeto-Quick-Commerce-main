@@ -1,3 +1,5 @@
+import logger from "../services/logger.js";
+
 export function notFoundHandler(req, res) {
   return res.status(404).json({
     success: false,
@@ -22,18 +24,17 @@ export function errorHandler(err, req, res, next) {
     : err.message || "Unexpected error";
 
   if (statusCode >= 500) {
-    console.error(
-      JSON.stringify({
-        level: "error",
-        ts: new Date().toISOString(),
-        correlationId: req.correlationId || null,
-        path: req.originalUrl,
-        method: req.method,
-        statusCode,
+    logger.error("Unhandled API error", {
+      correlationId: req.correlationId || null,
+      path: req.originalUrl,
+      method: req.method,
+      statusCode,
+      error: {
         message: err.message,
         stack: isProd ? undefined : err.stack,
-      }),
-    );
+        code: err.code || "API_ERROR",
+      },
+    });
   }
 
   return res.status(statusCode).json({

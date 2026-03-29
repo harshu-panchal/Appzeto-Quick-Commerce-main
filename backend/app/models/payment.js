@@ -43,6 +43,17 @@ const paymentSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+    checkoutGroupId: {
+      type: String,
+      default: null,
+      index: true,
+    },
+    orderIds: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Order",
+      },
+    ],
     publicOrderId: {
       type: String,
       required: true,
@@ -152,6 +163,8 @@ paymentSchema.index(
   },
 );
 paymentSchema.index({ order: 1, createdAt: -1 });
+paymentSchema.index({ checkoutGroupId: 1, createdAt: -1 });
+paymentSchema.index({ checkoutGroupId: 1, status: 1, createdAt: -1 });
 paymentSchema.index({ customer: 1, createdAt: -1 });
 paymentSchema.index({ status: 1, updatedAt: -1 });
 

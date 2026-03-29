@@ -2,6 +2,7 @@ import { getClientIp } from "./rateLimiter.js";
 import { v4 as uuidv4 } from "uuid";
 import logger from "../services/logger.js";
 import { incrementCounter, recordHistogram } from "../services/metrics.js";
+import { getProcessRole } from "../core/processRole.js";
 
 function shouldLogRequest(pathname = "") {
   if (!pathname) return true;
@@ -18,6 +19,7 @@ export function correlationIdMiddleware(req, res, next) {
                         uuidv4();
   
   req.correlationId = correlationId;
+  req.requestStartedAt = Date.now();
   
   // Set response header
   res.setHeader('X-Correlation-Id', correlationId);
@@ -42,10 +44,13 @@ export function structuredRequestLogger(req, res, next) {
                      res.statusCode >= 400 ? 'warn' : 'info';
     
     logger.log(logLevel, 'HTTP request completed', {
+      requestId: req.correlationId || null,
       method: req.method,
       path: req.originalUrl,
+      route: req.route?.path || req.path || null,
       statusCode: res.statusCode,
       duration: durationMs,
+      appRole: getProcessRole(),
       ip: getClientIp(req),
       userId: req.user?.id || null,
       userRole: req.user?.role || null,
@@ -58,10 +63,19 @@ export function structuredRequestLogger(req, res, next) {
       path: req.route?.path || req.path || 'unknown',
       status: res.statusCode
     });
+    if (res.statusCode >= 400) {
+      incrementCounter("http_errors_total", {
+        method: req.method,
+        path: req.route?.path || req.path || "unknown",
+        status: res.statusCode,
+        role: getProcessRole(),
+      });
+    }
     
     recordHistogram('http_request_duration_seconds', durationSeconds, {
       method: req.method,
-      path: req.route?.path || req.path || 'unknown'
+      path: req.route?.path || req.path || 'unknown',
+      role: getProcessRole(),
     });
   });
   

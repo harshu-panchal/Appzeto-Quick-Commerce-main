@@ -1,7 +1,6 @@
 import Delivery from "../models/delivery.js";
 import jwt from "jsonwebtoken";
 import handleResponse from "../utils/helper.js";
-import { uploadToCloudinary } from "../utils/cloudinary.js";
 import { generateOTP, useRealSMS } from "../utils/otp.js";
 
 const generateToken = (delivery) =>
@@ -39,17 +38,14 @@ export const signupDelivery = async (req, res) => {
         let panUrl = delivery?.documents?.pan || "";
         let dlUrl = delivery?.documents?.drivingLicense || "";
 
-        if (req.files) {
-            if (req.files.aadhar && req.files.aadhar[0]) {
-                aadharUrl = await uploadToCloudinary(req.files.aadhar[0].buffer, 'delivery_docs');
-            }
-            if (req.files.pan && req.files.pan[0]) {
-                panUrl = await uploadToCloudinary(req.files.pan[0].buffer, 'delivery_docs');
-            }
-            if (req.files.dl && req.files.dl[0]) {
-                dlUrl = await uploadToCloudinary(req.files.dl[0].buffer, 'delivery_docs');
-            }
-        }
+        const normalizedAadhar = String(req.body?.aadharUrl || req.body?.aadhar || "").trim();
+        const normalizedPan = String(req.body?.panUrl || req.body?.pan || "").trim();
+        const normalizedDl = String(
+          req.body?.drivingLicenseUrl || req.body?.dlUrl || req.body?.dl || "",
+        ).trim();
+        if (/^https?:\/\//i.test(normalizedAadhar)) aadharUrl = normalizedAadhar;
+        if (/^https?:\/\//i.test(normalizedPan)) panUrl = normalizedPan;
+        if (/^https?:\/\//i.test(normalizedDl)) dlUrl = normalizedDl;
 
         const deliveryData = {
             name,

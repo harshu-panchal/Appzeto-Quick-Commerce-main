@@ -1,7 +1,5 @@
 import Order from "../models/order.js";
-import Seller from "../models/seller.js";
 import handleResponse from "../utils/helper.js";
-import { distanceMeters } from "../utils/geoUtils.js";
 import {
   checkoutPreviewSchema,
   codMarkCollectedSchema,
@@ -11,10 +9,6 @@ import {
   verifyOnlinePaymentSchema,
 } from "../validation/financeValidation.js";
 import {
-  generateOrderPaymentBreakdown,
-  hydrateOrderItems,
-} from "../services/finance/pricingService.js";
-import {
   handleCodOrderFinance,
   reconcileCodCash,
   settleDeliveredOrder,
@@ -22,6 +16,7 @@ import {
 import { placeOrderAtomic } from "../services/orderPlacementService.js";
 import { orderMatchQueryFromRouteParam } from "../utils/orderLookup.js";
 import { verifyClientPaymentCallback } from "../services/paymentService.js";
+import { buildCheckoutPricingSnapshot } from "../services/checkoutPricingService.js";
 
 function validateWithJoi(schema, payload) {
   const { error, value } = schema.validate(payload, {
@@ -37,89 +32,33 @@ function validateWithJoi(schema, payload) {
   return value;
 }
 
-async function deriveDistanceKm({ sellerId, addressLocation, distanceKmHint }) {
-  if (typeof distanceKmHint === "number" && Number.isFinite(distanceKmHint)) {
-    return Math.max(distanceKmHint, 0);
-  }
-  if (
-    typeof addressLocation?.lat !== "number" ||
-    typeof addressLocation?.lng !== "number" ||
-    !sellerId
-  ) {
-    return 0;
-  }
-
-  const seller = await Seller.findById(sellerId).select("location").lean();
-  const coords = seller?.location?.coordinates;
-  if (!Array.isArray(coords) || coords.length < 2) {
-    return 0;
-  }
-  const [lng, lat] = coords;
-  const meters = distanceMeters(
-    Number(addressLocation.lat),
-    Number(addressLocation.lng),
-    Number(lat),
-    Number(lng),
-  );
-  return Number((meters / 1000).toFixed(3));
-}
-
 export const previewCheckoutFinance = async (req, res) => {
   try {
     const payload = validateWithJoi(checkoutPreviewSchema, req.body || {});
-    const hydratedItems = await hydrateOrderItems(payload.items);
-    const sellerId = hydratedItems[0]?.sellerId;
-    const distanceKm = await deriveDistanceKm({
-      sellerId,
-      addressLocation: payload.address?.location,
-      distanceKmHint: payload.distanceKm,
+    const pricingSnapshot = await buildCheckoutPricingSnapshot({
+      orderItems: payload.items,
+      address: payload.address,
     });
 
-    const breakdown = await generateOrderPaymentBreakdown({
-      items: payload.items,
-      preHydratedItems: hydratedItems,
-      distanceKm,
-      discountTotal: payload.discountTotal,
-      taxTotal: payload.taxTotal,
-    });
+    const sellerBreakdowns = pricingSnapshot.sellerBreakdownEntries.map((entry) => ({
+      sellerId: entry.sellerId,
+      distanceKm: entry.distanceKm,
+      breakdown: entry.breakdown,
+    }));
 
-    // Debug helper: when enabled, return the exact coordinates used for distance calc.
-    // This makes it easy to detect wrong seller location or stale customer coords.
-    let distanceDebug = undefined;
-    if (String(process.env.FINANCE_DEBUG_DISTANCE || "").toLowerCase() === "true") {
-      try {
-        const seller = sellerId
-          ? await Seller.findById(sellerId).select("shopName location").lean()
-          : null;
-        const coords = seller?.location?.coordinates;
-        const sellerPoint =
-          Array.isArray(coords) && coords.length >= 2
-            ? { lat: Number(coords[1]), lng: Number(coords[0]) }
-            : null;
-        const customerPoint =
-          payload.address?.location &&
-          typeof payload.address.location.lat === "number" &&
-          typeof payload.address.location.lng === "number"
-            ? {
-                lat: Number(payload.address.location.lat),
-                lng: Number(payload.address.location.lng),
-              }
-            : null;
-        distanceDebug = {
-          sellerId: sellerId || null,
-          sellerShopName: seller?.shopName || null,
-          sellerPoint,
-          customerPoint,
-          distanceKmDerived: distanceKm,
-        };
-      } catch {
-        // ignore debug failures
-      }
-    }
+    const distanceDebug = String(process.env.FINANCE_DEBUG_DISTANCE || "").toLowerCase() === "true"
+      ? sellerBreakdowns.map((item) => ({
+          sellerId: item.sellerId,
+          distanceKmDerived: item.distanceKm,
+        }))
+      : undefined;
 
     return handleResponse(res, 200, "Checkout preview generated", {
       paymentMode: payload.paymentMode,
-      breakdown,
+      breakdown: pricingSnapshot.aggregateBreakdown,
+      sellerCount: pricingSnapshot.sellerCount,
+      itemCount: pricingSnapshot.itemCount,
+      sellerBreakdowns,
       ...(distanceDebug ? { distanceDebug } : {}),
     });
   } catch (error) {
@@ -134,10 +73,16 @@ export const createOrderWithFinancialSnapshot = async (req, res) => {
       return handleResponse(res, 401, "Unauthorized");
     }
 
-    const payload = validateWithJoi(createFinanceOrderSchema, req.body || {});
+    const validated = validateWithJoi(createFinanceOrderSchema, req.body || {});
+    const payload = {
+      items: validated.items,
+      address: validated.address,
+      paymentMode: validated.paymentMode,
+      timeSlot: validated.timeSlot || "now",
+    };
     const idempotencyKey = String(req.headers["idempotency-key"] || "").trim() || null;
 
-    const { order, duplicate } = await placeOrderAtomic({
+    const placement = await placeOrderAtomic({
       customerId,
       payload,
       idempotencyKey,
@@ -145,11 +90,19 @@ export const createOrderWithFinancialSnapshot = async (req, res) => {
 
     return handleResponse(
       res,
-      duplicate ? 200 : 201,
-      duplicate
+      placement.duplicate ? 200 : 201,
+      placement.duplicate
         ? "Duplicate request resolved using existing order"
         : "Order created with financial snapshot",
-      order,
+      {
+        order: placement.order,
+        orders: placement.orders,
+        checkoutGroup: placement.checkoutGroup,
+        paymentRef:
+          placement.checkoutGroup?.checkoutGroupId ||
+          placement.order?.orderId ||
+          null,
+      },
     );
   } catch (error) {
     return handleResponse(res, error.statusCode || 500, error.message);

@@ -1,7 +1,7 @@
 import Joi from "joi";
 import Setting from "../models/setting.js";
 import handleResponse from "../utils/helper.js";
-import { uploadToCloudinary } from "../utils/cloudinary.js";
+import { buildKey, getOrSet, getTTL, invalidate } from "../services/cacheService.js";
 
 /** Allowed keys for settings update (strip unknown keys) */
 const ALLOWED_KEYS = [
@@ -103,15 +103,25 @@ export const getPublicSettings = async (req, res) => {
     const filter = tenantId
       ? { tenantId }
       : { $or: [{ tenantId: null }, { tenantId: { $exists: false } }] };
+    const cacheKey = buildKey("platform", "settings", tenantId ? String(tenantId) : "default");
 
-    let settings = await Setting.findOne(filter)
-      .select(
-        "appName supportEmail supportPhone currencySymbol currencyCode timezone logoUrl faviconUrl primaryColor secondaryColor returnDeliveryCommission deliveryPricingMode pricingMode customerBaseDeliveryFee riderBasePayout baseDeliveryCharge baseDistanceCapacityKm incrementalKmSurcharge deliveryPartnerRatePerKm fleetCommissionRatePerKm fixedDeliveryFee handlingFeeStrategy codEnabled onlineEnabled createdAt",
-      )
-      .lean();
+    let settings = await getOrSet(
+      cacheKey,
+      async () => {
+        const existing = await Setting.findOne(filter)
+          .select(
+            "appName supportEmail supportPhone currencySymbol currencyCode timezone logoUrl faviconUrl primaryColor secondaryColor returnDeliveryCommission deliveryPricingMode pricingMode customerBaseDeliveryFee riderBasePayout baseDeliveryCharge baseDistanceCapacityKm incrementalKmSurcharge deliveryPartnerRatePerKm fleetCommissionRatePerKm fixedDeliveryFee handlingFeeStrategy codEnabled onlineEnabled createdAt",
+          )
+          .lean();
+        return existing || null;
+      },
+      getTTL("settings"),
+    );
 
     if (!settings) {
-      settings = await Setting.create({ tenantId });
+      const created = await Setting.create({ tenantId });
+      settings = created.toObject();
+      await invalidate("cache:platform:settings:*");
     }
 
     return handleResponse(res, 200, "Settings fetched successfully", settings);
@@ -161,6 +171,7 @@ export const updateSettings = async (req, res) => {
       { $set: toSet },
       { new: true, upsert: true },
     );
+    await invalidate("cache:platform:settings:*");
 
     return handleResponse(res, 200, "Settings updated successfully", settings);
   } catch (err) {
@@ -175,13 +186,17 @@ export const updateSettings = async (req, res) => {
  */
 export const uploadSettingsImage = async (req, res) => {
   try {
-    if (!req.file) {
-      return handleResponse(res, 400, "Image file is required");
+    const providedUrl = String(req.body?.url || req.body?.imageUrl || "").trim();
+    if (!providedUrl || !/^https?:\/\//i.test(providedUrl)) {
+      return handleResponse(res, 400, "A valid image URL is required");
     }
+
     const type = (req.query.type || "logo").toLowerCase();
-    const folder = type === "favicon" ? "settings/favicons" : "settings/logos";
-    const url = await uploadToCloudinary(req.file.buffer, folder);
-    return handleResponse(res, 200, "Image uploaded successfully", { url });
+    if (type !== "logo" && type !== "favicon") {
+      return handleResponse(res, 400, "type must be logo or favicon");
+    }
+    await invalidate("cache:platform:settings:*");
+    return handleResponse(res, 200, "Image URL accepted", { url: providedUrl, type });
   } catch (error) {
     return handleResponse(res, 500, error.message);
   }

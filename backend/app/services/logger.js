@@ -33,7 +33,10 @@ const SENSITIVE_PATTERNS = [
   /authorization/i,
   /bearer/i,
   /otp/i,
-  /pin/i
+  /pin/i,
+  /signature/i,
+  /cookie/i,
+  /privatekey/i,
 ];
 
 /**
@@ -71,11 +74,6 @@ function runWithCorrelationId(correlationId, callback) {
 function sanitize(data) {
   if (!data || typeof data !== 'object') {
     return data;
-  }
-  
-  const isProduction = process.env.NODE_ENV === 'production';
-  if (!isProduction) {
-    return data; // Skip sanitization in non-production
   }
   
   if (Array.isArray(data)) {

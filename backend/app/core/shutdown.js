@@ -14,6 +14,7 @@ let _isShuttingDown = false;
 let _httpServer = null;
 let _socketIO = null;
 let _bullQueues = [];
+let _schedulerStopper = null;
 
 /**
  * Register HTTP server for graceful shutdown
@@ -38,6 +39,16 @@ function registerSocketIO(io) {
 function registerBullQueue(queue) {
   if (queue && !_bullQueues.includes(queue)) {
     _bullQueues.push(queue);
+  }
+}
+
+/**
+ * Register scheduler stop callback for graceful shutdown
+ * @param {Function} stopper - Async function to stop scheduler jobs
+ */
+function registerSchedulerStopper(stopper) {
+  if (typeof stopper === "function") {
+    _schedulerStopper = stopper;
   }
 }
 
@@ -97,17 +108,17 @@ async function closeSocketIO() {
       // Notify all connected clients
       _socketIO.emit('server_shutdown', { message: 'Server is shutting down' });
       
-      // Close all connections
-      _socketIO.close(() => {
-        console.log('[Shutdown] Socket.IO closed successfully');
-        resolve();
-      });
-      
-      // Force close after 5 seconds
-      setTimeout(() => {
+      const timeoutHandle = setTimeout(() => {
         console.warn('[Shutdown] Socket.IO close timeout, forcing close');
         resolve();
       }, 5000);
+
+      // Close all connections
+      _socketIO.close(() => {
+        clearTimeout(timeoutHandle);
+        console.log('[Shutdown] Socket.IO closed successfully');
+        resolve();
+      });
     } catch (error) {
       console.error('[Shutdown] Error closing Socket.IO:', error.message);
       resolve();
@@ -241,19 +252,30 @@ async function gracefulShutdown(signal) {
     await closeHttpServer(Math.floor(shutdownTimeout * 0.6));
     
     // Step 3: Close Bull queue connections
-    console.log('[Shutdown] Step 3: Closing Bull queues...');
+    console.log('[Shutdown] Step 3: Stopping scheduler jobs...');
+    if (_schedulerStopper) {
+      await Promise.race([
+        Promise.resolve(_schedulerStopper()),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("Scheduler stop timeout")), 4000)),
+      ]).catch((error) => {
+        console.warn("[Shutdown] Scheduler stopper warning:", error.message);
+      });
+    }
+
+    // Step 4: Close Bull queue connections
+    console.log('[Shutdown] Step 4: Closing Bull queues...');
     await closeBullQueues();
     
-    // Step 4: Close Socket.IO connections
-    console.log('[Shutdown] Step 4: Closing Socket.IO...');
+    // Step 5: Close Socket.IO connections
+    console.log('[Shutdown] Step 5: Closing Socket.IO...');
     await closeSocketIO();
     
-    // Step 5: Close Redis connection
-    console.log('[Shutdown] Step 5: Closing Redis...');
+    // Step 6: Close Redis connection
+    console.log('[Shutdown] Step 6: Closing Redis...');
     await closeRedis();
     
-    // Step 6: Close MongoDB connection
-    console.log('[Shutdown] Step 6: Closing MongoDB...');
+    // Step 7: Close MongoDB connection
+    console.log('[Shutdown] Step 7: Closing MongoDB...');
     await closeMongoDB();
     
     clearTimeout(forceExitTimeout);
@@ -306,7 +328,8 @@ export {
   isShuttingDown,
   registerHttpServer,
   registerSocketIO,
-  registerBullQueue
+  registerBullQueue,
+  registerSchedulerStopper,
 };
 
 export default gracefulShutdown;

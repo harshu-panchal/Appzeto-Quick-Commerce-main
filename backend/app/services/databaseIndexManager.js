@@ -18,6 +18,7 @@ const INDEX_DEFINITIONS = {
     { keys: { status: 1, categoryId: 1, createdAt: -1 }, options: { name: "status_category_created" } },
     { keys: { status: 1, sellerId: 1, createdAt: -1 }, options: { name: "status_seller_created" } },
     { keys: { status: 1, isFeatured: 1, createdAt: -1 }, options: { name: "status_featured_created" } },
+    { keys: { status: 1, createdAt: -1, _id: -1 }, options: { name: "status_created_tiebreak" } },
     
     // Text search
     { 
@@ -31,15 +32,18 @@ const INDEX_DEFINITIONS = {
     
     // Seller product management
     { keys: { sellerId: 1, status: 1, stock: 1 }, options: { name: "seller_status_stock" } },
+    { keys: { sellerId: 1, createdAt: -1, _id: -1 }, options: { name: "seller_created_tiebreak" } },
   ],
   
   orders: [
     // Customer order history
     { keys: { customer: 1, createdAt: -1, status: 1 }, options: { name: "customer_created_status" } },
+    { keys: { customer: 1, createdAt: -1, _id: -1 }, options: { name: "customer_created_tiebreak" } },
     
     // Seller order management
     { keys: { seller: 1, status: 1, createdAt: -1 }, options: { name: "seller_status_created" } },
     { keys: { seller: 1, workflowStatus: 1, createdAt: -1 }, options: { name: "seller_workflow_created" } },
+    { keys: { seller: 1, createdAt: -1, _id: -1 }, options: { name: "seller_created_tiebreak" } },
     
     // Delivery partner orders
     { keys: { deliveryBoy: 1, workflowStatus: 1, createdAt: -1 }, options: { name: "delivery_workflow_created" } },
@@ -50,6 +54,7 @@ const INDEX_DEFINITIONS = {
     
     // Multi-seller checkout
     { keys: { checkoutGroupId: 1, createdAt: -1 }, options: { name: "checkout_group_created" } },
+    { keys: { checkoutGroupId: 1, checkoutGroupIndex: 1 }, options: { name: "checkout_group_index" } },
     
     // TTL index for idempotency key expiry
     { 
@@ -72,6 +77,33 @@ const INDEX_DEFINITIONS = {
     // User notifications
     { keys: { recipient: 1, recipientModel: 1, isRead: 1, createdAt: -1 }, options: { name: "recipient_model_read_created" } },
     { keys: { recipient: 1, createdAt: -1 }, options: { name: "recipient_created" } },
+    { keys: { recipient: 1, createdAt: -1, _id: -1 }, options: { name: "recipient_created_tiebreak" } },
+  ],
+
+  checkoutgroups: [
+    { keys: { checkoutGroupId: 1 }, options: { name: "checkout_group_unique", unique: true } },
+    { keys: { customer: 1, createdAt: -1 }, options: { name: "checkout_customer_created" } },
+    { keys: { paymentStatus: 1, createdAt: -1 }, options: { name: "checkout_payment_created" } },
+    {
+      keys: { "placement.idempotencyKeyExpiry": 1 },
+      options: {
+        name: "checkout_idempotency_expiry_ttl",
+        expireAfterSeconds: 0,
+        partialFilterExpression: { "placement.idempotencyKeyExpiry": { $type: "date" } },
+      },
+    },
+  ],
+
+  mediametadatas: [
+    { keys: { status: 1, expiresAt: 1 }, options: { name: "media_status_expires" } },
+    {
+      keys: { expiresAt: 1 },
+      options: {
+        name: "media_upload_intent_ttl",
+        expireAfterSeconds: 0,
+        partialFilterExpression: { status: "pending", expiresAt: { $type: "date" } },
+      },
+    },
   ],
   
   otps: [

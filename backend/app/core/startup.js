@@ -34,6 +34,20 @@ async function validateDependencies() {
   
   const isProduction = process.env.NODE_ENV === 'production';
   const role = getProcessRole();
+
+  if (isProduction && role === "all") {
+    result.valid = false;
+    result.errors.push("APP_ROLE=all is not allowed in production. Use api, worker, or scheduler.");
+  }
+
+  if (
+    process.env.APP_ROLE &&
+    process.env.PROCESS_ROLE &&
+    String(process.env.APP_ROLE).toLowerCase() !== String(process.env.PROCESS_ROLE).toLowerCase()
+  ) {
+    result.valid = false;
+    result.errors.push("APP_ROLE and PROCESS_ROLE are both set but have different values.");
+  }
   
   // Validate MongoDB connection
   try {

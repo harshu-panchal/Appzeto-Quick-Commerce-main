@@ -1,20 +1,37 @@
-import multer from 'multer';
+/**
+ * Legacy upload middleware compatibility shim.
+ *
+ * The backend now uses direct-to-object-storage uploads through
+ * /api/media/upload-intent and /api/media/confirm. Multipart uploads
+ * through API memory are intentionally disabled for production safety.
+ */
 
-// Use memory storage to upload to Cloudinary directly
-const storage = multer.memoryStorage();
+function buildDisabledUploadError() {
+  const error = new Error(
+    "Multipart uploads are disabled. Use /api/media/upload-intent and /api/media/confirm.",
+  );
+  error.statusCode = 410;
+  return error;
+}
 
-const upload = multer({
-    storage,
-    limits: {
-        fileSize: 5 * 1024 * 1024, // 5MB limit
-    },
-    fileFilter: (req, file, cb) => {
-        if (file.mimetype.startsWith('image/')) {
-            cb(null, true);
-        } else {
-            cb(new Error('Only images are allowed'), false);
-        }
-    },
-});
+function disabledUploadMiddleware(_req, _res, next) {
+  next(buildDisabledUploadError());
+}
+
+function createDisabledHandler() {
+  return disabledUploadMiddleware;
+}
+
+export function createUpload() {
+  return {
+    single: createDisabledHandler,
+    array: createDisabledHandler,
+    fields: createDisabledHandler,
+    any: createDisabledHandler,
+    none: createDisabledHandler,
+  };
+}
+
+const upload = createUpload();
 
 export default upload;

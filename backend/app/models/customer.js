@@ -122,8 +122,6 @@ const userSchema = new mongoose.Schema(
 );
 
 userSchema.index({ role: 1, isActive: 1 });
-userSchema.index({ email: 1 }, { unique: true, sparse: true });
-userSchema.index({ phone: 1 }, { unique: true });
 
 userSchema.pre("validate", function(next) {
     if (this.phone) {

@@ -8,15 +8,24 @@
  */
 
 const VALID_ROLES = ['api', 'worker', 'scheduler', 'all'];
-const DEFAULT_ROLE = 'all';
+const DEFAULT_ROLE = 'api';
 
 /**
  * Get the current process role from environment
  * @returns {'api' | 'worker' | 'scheduler' | 'all'} The current process role
  */
 function getProcessRole() {
-  const role = (process.env.PROCESS_ROLE || DEFAULT_ROLE).toLowerCase();
+  const configuredRole = process.env.APP_ROLE || process.env.PROCESS_ROLE || DEFAULT_ROLE;
+  const role = String(configuredRole).toLowerCase().trim();
   return role;
+}
+
+function getRoleComponentPlan(role = getProcessRole()) {
+  return {
+    http: role === 'api' || role === 'all',
+    worker: role === 'worker' || role === 'all',
+    scheduler: role === 'scheduler' || role === 'all',
+  };
 }
 
 /**
@@ -25,15 +34,15 @@ function getProcessRole() {
  * @returns {boolean} True if component should be enabled
  */
 function isComponentEnabled(component) {
-  const role = getProcessRole();
+  const components = getRoleComponentPlan(getProcessRole());
   
   switch (component) {
     case 'http':
-      return role === 'api' || role === 'all';
+      return components.http;
     case 'worker':
-      return role === 'worker' || role === 'all';
+      return components.worker;
     case 'scheduler':
-      return role === 'scheduler' || role === 'all';
+      return components.scheduler;
     default:
       return false;
   }
@@ -48,13 +57,14 @@ function validateProcessRole() {
   
   if (!VALID_ROLES.includes(role)) {
     throw new Error(
-      `Invalid PROCESS_ROLE value: "${role}". Must be one of: ${VALID_ROLES.join(', ')}`
+      `Invalid APP_ROLE/PROCESS_ROLE value: "${role}". Must be one of: ${VALID_ROLES.join(', ')}`
     );
   }
 }
 
 const processRole = {
   getProcessRole,
+  getRoleComponentPlan,
   isComponentEnabled,
   validateProcessRole,
   VALID_ROLES,
@@ -63,6 +73,7 @@ const processRole = {
 
 export {
   getProcessRole,
+  getRoleComponentPlan,
   isComponentEnabled,
   validateProcessRole,
   VALID_ROLES,

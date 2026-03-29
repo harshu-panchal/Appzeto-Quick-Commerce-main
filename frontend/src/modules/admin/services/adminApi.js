@@ -7,6 +7,7 @@ export const adminApi = {
     getUsers: (params) => axiosInstance.get('/admin/users', { params }),
     getUserById: (id) => axiosInstance.get(`/admin/users/${id}`),
     getActiveSellers: (params) => axiosInstance.get('/admin/sellers/active', { params }),
+    getSellerLocations: (params) => axiosInstance.get('/admin/sellers/locations', { params }),
     getPendingSellers: (params) => axiosInstance.get('/admin/sellers/pending', { params }),
     approveSeller: (id) => axiosInstance.patch(`/admin/sellers/approve/${id}`),
     rejectSeller: (id, data) => axiosInstance.delete(`/admin/sellers/reject/${id}`, { data }),

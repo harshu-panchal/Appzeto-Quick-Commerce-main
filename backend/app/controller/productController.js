@@ -1,6 +1,5 @@
 import Product from "../models/product.js";
 import { handleResponse } from "../utils/helper.js";
-import { uploadToCloudinary } from "../utils/cloudinary.js";
 import { slugify } from "../utils/slugify.js";
 import getPagination from "../utils/pagination.js";
 import {
@@ -11,6 +10,7 @@ import {
   enqueueProductIndex,
   enqueueProductRemoval,
 } from "../services/searchSyncService.js";
+import { buildKey, getOrSet, getTTL, invalidate } from "../services/cacheService.js";
 
 function isCustomerVisibilityRequest(req) {
   const role = String(req.user?.role || "").toLowerCase();
@@ -40,6 +40,58 @@ function makeProductSku(name, index = 1) {
     .replace(/[^a-z0-9]/g, "")
     .slice(0, 5) || "item";
   return `${prefix}-${String(index).padStart(3, "0")}`;
+}
+
+function parseJsonIfString(value) {
+  if (typeof value !== "string") return value;
+  const trimmed = value.trim();
+  if (!trimmed) return value;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return value;
+  }
+}
+
+function normalizeUrl(value) {
+  const normalized = String(value || "").trim();
+  if (!/^https?:\/\//i.test(normalized)) return "";
+  return normalized;
+}
+
+function parseImageList(input) {
+  const candidate = parseJsonIfString(input);
+  if (Array.isArray(candidate)) {
+    return candidate.map((item) => normalizeUrl(item)).filter(Boolean);
+  }
+  if (typeof candidate === "string" && candidate.includes(",")) {
+    return candidate
+      .split(",")
+      .map((item) => normalizeUrl(item))
+      .filter(Boolean);
+  }
+  const single = normalizeUrl(candidate);
+  return single ? [single] : [];
+}
+
+function applyMediaFields(productData) {
+  const explicitMainImage = normalizeUrl(productData.mainImage || productData.mainImageUrl);
+  const galleryImages = parseImageList(productData.galleryImages);
+  const genericImages = parseImageList(productData.images);
+
+  const mergedGallery = [...galleryImages, ...genericImages].filter(Boolean);
+  if (explicitMainImage) {
+    productData.mainImage = explicitMainImage;
+  } else if (mergedGallery.length > 0) {
+    productData.mainImage = mergedGallery[0];
+    mergedGallery.shift();
+  }
+
+  if (mergedGallery.length > 0) {
+    productData.galleryImages = mergedGallery;
+  } else if (!Array.isArray(productData.galleryImages)) {
+    productData.galleryImages = [];
+  }
 }
 
 /* ===============================
@@ -291,24 +343,7 @@ export const createProduct = async (req, res) => {
       productData.sku = makeProductSku(productData.name, 1);
     }
 
-    // Handle Images
-    if (req.files) {
-      // Main Image
-      if (req.files.mainImage && req.files.mainImage[0]) {
-        productData.mainImage = await uploadToCloudinary(
-          req.files.mainImage[0].buffer,
-          "products",
-        );
-      }
-
-      // Gallery Images
-      if (req.files.galleryImages && req.files.galleryImages.length > 0) {
-        const uploadPromises = req.files.galleryImages.map((file) =>
-          uploadToCloudinary(file.buffer, "products"),
-        );
-        productData.galleryImages = await Promise.all(uploadPromises);
-      }
-    }
+    applyMediaFields(productData);
 
     // Handle tags if string
     if (typeof productData.tags === "string") {
@@ -338,6 +373,7 @@ export const createProduct = async (req, res) => {
     
     // Enqueue search indexing asynchronously
     await enqueueProductIndex(product._id.toString());
+    await invalidate(`cache:catalog:product:${product._id.toString()}`);
     
     return handleResponse(res, 201, "Product created successfully", product);
   } catch (error) {
@@ -387,39 +423,7 @@ export const updateProduct = async (req, res) => {
       productData.sku = product.sku || makeProductSku(skuBaseName, 1);
     }
 
-    // Handle Images
-    if (req.files) {
-      // Seller-style images
-      if (req.files.mainImage && req.files.mainImage[0]) {
-        productData.mainImage = await uploadToCloudinary(
-          req.files.mainImage[0].buffer,
-          "products",
-        );
-      }
-
-      if (req.files.galleryImages && req.files.galleryImages.length > 0) {
-        const uploadPromises = req.files.galleryImages.map((file) =>
-          uploadToCloudinary(file.buffer, "products"),
-        );
-        productData.galleryImages = await Promise.all(uploadPromises);
-      }
-
-      // Admin-style images (array of 'images')
-      if (req.files.images && req.files.images.length > 0) {
-        const uploadPromises = req.files.images.map((file) =>
-          uploadToCloudinary(file.buffer, "products"),
-        );
-        const uploadedImages = await Promise.all(uploadPromises);
-
-        // For admin, we use the first as mainImage and rest as gallery
-        if (uploadedImages.length > 0) {
-          productData.mainImage = uploadedImages[0];
-          productData.galleryImages = uploadedImages.slice(1);
-          // Also support a generic 'images' field if schema has it (some versions did)
-          productData.images = uploadedImages;
-        }
-      }
-    }
+    applyMediaFields(productData);
 
     if (typeof productData.tags === "string") {
       productData.tags = productData.tags.split(",").map((tag) => tag.trim());
@@ -451,6 +455,7 @@ export const updateProduct = async (req, res) => {
     
     // Enqueue search indexing asynchronously
     await enqueueProductIndex(id);
+    await invalidate(`cache:catalog:product:${id}`);
 
     return handleResponse(
       res,
@@ -497,6 +502,7 @@ export const deleteProduct = async (req, res) => {
     
     // Enqueue search index removal asynchronously
     await enqueueProductRemoval(id);
+    await invalidate(`cache:catalog:product:${id}`);
 
     return handleResponse(res, 200, "Product deleted successfully");
   } catch (error) {
@@ -529,18 +535,25 @@ export const getProductById = async (req, res) => {
       nearbySellerSet = new Set(nearbySellerIds.map(String));
     }
 
-    const product = await Product.findById(id)
-      .populate("headerId", "name")
-      .populate("categoryId", "name")
-      .populate("subcategoryId", "name")
-      .populate("sellerId", "shopName");
+    const cacheKey = buildKey("catalog", "product", id);
+    const product = await getOrSet(
+      cacheKey,
+      async () =>
+        Product.findById(id)
+          .populate("headerId", "name")
+          .populate("categoryId", "name")
+          .populate("subcategoryId", "name")
+          .populate("sellerId", "shopName")
+          .lean(),
+      getTTL("product"),
+    );
 
     if (!product) {
       return handleResponse(res, 404, "Product not found");
     }
 
     if (enforceRadius) {
-      const sellerIdForProduct = String(product.sellerId?._id || product.sellerId);
+      const sellerIdForProduct = String(product?.sellerId?._id || product?.sellerId);
       if (!nearbySellerSet || !nearbySellerSet.has(sellerIdForProduct)) {
         return handleResponse(res, 404, "Product not available in your area");
       }

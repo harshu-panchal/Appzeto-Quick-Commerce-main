@@ -1,24 +1,38 @@
 import Notification from "../models/notification.js";
 import handleResponse from "../utils/helper.js";
+import getPagination from "../utils/pagination.js";
 
 /* ===============================
    GET MY NOTIFICATIONS
 ================================ */
 export const getMyNotifications = async (req, res) => {
     try {
-        const notifications = await Notification.find({ recipient: req.user.id })
-            .sort({ createdAt: -1 })
-            .limit(20)
-            .lean();
-
-        const unreadCount = await Notification.countDocuments({
-            recipient: req.user.id,
-            isRead: false
+        const { page, limit, skip } = getPagination(req, {
+            defaultLimit: 20,
+            maxLimit: 100,
         });
+
+        const [notifications, total, unreadCount] = await Promise.all([
+            Notification.find({ recipient: req.user.id })
+                .sort({ createdAt: -1, _id: -1 })
+                .skip(skip)
+                .limit(limit)
+                .lean(),
+            Notification.countDocuments({ recipient: req.user.id }),
+            Notification.countDocuments({
+                recipient: req.user.id,
+                isRead: false,
+            }),
+        ]);
 
         return handleResponse(res, 200, "Notifications fetched successfully", {
             notifications,
-            unreadCount
+            items: notifications,
+            unreadCount,
+            page,
+            limit,
+            total,
+            totalPages: Math.ceil(total / limit) || 1,
         });
     } catch (error) {
         return handleResponse(res, 500, error.message);

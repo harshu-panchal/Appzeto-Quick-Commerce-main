@@ -39,5 +39,7 @@ const notificationSchema = new mongoose.Schema(
 
 // Index for faster queries on recipient and isRead status
 notificationSchema.index({ recipient: 1, isRead: 1 });
+notificationSchema.index({ recipient: 1, recipientModel: 1, createdAt: -1, _id: -1 });
+notificationSchema.index({ recipient: 1, recipientModel: 1, isRead: 1, createdAt: -1 });
 
 export default mongoose.model("Notification", notificationSchema);

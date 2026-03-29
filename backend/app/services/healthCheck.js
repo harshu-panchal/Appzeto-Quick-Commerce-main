@@ -9,8 +9,9 @@
 
 import mongoose from 'mongoose';
 import { v4 as uuidv4 } from 'uuid';
-import { getProcessRole } from '../core/processRole.js';
+import { getProcessRole, isComponentEnabled } from '../core/processRole.js';
 import { isRedisEnabled, getRedisClient } from '../config/redis.js';
+import { setGauge } from './metrics.js';
 
 const startTime = Date.now();
 
@@ -102,6 +103,36 @@ async function checkRedisHealth() {
   }
 }
 
+async function checkQueueHealth() {
+  const start = Date.now();
+  if (!isComponentEnabled("worker")) {
+    return {
+      status: "DISABLED",
+      responseTime: Date.now() - start,
+    };
+  }
+
+  try {
+    const { sellerTimeoutQueue, deliveryTimeoutQueue } = await import("../queues/orderQueues.js");
+    const queueCandidates = [sellerTimeoutQueue, deliveryTimeoutQueue];
+    for (const queue of queueCandidates) {
+      if (typeof queue?.isReady === "function") {
+        await queue.isReady();
+      }
+    }
+    return {
+      status: "UP",
+      responseTime: Date.now() - start,
+    };
+  } catch (error) {
+    return {
+      status: "DOWN",
+      responseTime: Date.now() - start,
+      error: error.message,
+    };
+  }
+}
+
 /**
  * Get health status (liveness probe)
  * @returns {Promise<Object>}
@@ -128,6 +159,7 @@ async function getReadinessStatus() {
   // Check MongoDB
   const mongoHealth = await checkMongoHealth();
   checks.mongodb = mongoHealth;
+  setGauge("dependency_up", mongoHealth.status === "UP" ? 1 : 0, { dependency: "mongodb" });
   if (mongoHealth.status !== 'UP') {
     ready = false;
   }
@@ -135,15 +167,24 @@ async function getReadinessStatus() {
   // Check Redis (only required in production)
   const redisHealth = await checkRedisHealth();
   checks.redis = redisHealth;
+  setGauge("dependency_up", redisHealth.status === "UP" ? 1 : 0, { dependency: "redis" });
   
   const isProduction = process.env.NODE_ENV === 'production';
   if (isProduction && redisHealth.status !== 'UP') {
+    ready = false;
+  }
+
+  const queueHealth = await checkQueueHealth();
+  checks.queue = queueHealth;
+  setGauge("dependency_up", queueHealth.status === "UP" ? 1 : 0, { dependency: "queue" });
+  if (isComponentEnabled("worker") && queueHealth.status !== "UP") {
     ready = false;
   }
   
   return {
     ready,
     checks,
+    role: getProcessRole(),
     timestamp: new Date().toISOString()
   };
 }
@@ -152,14 +193,16 @@ const healthCheck = {
   getHealthStatus,
   getReadinessStatus,
   checkMongoHealth,
-  checkRedisHealth
+  checkRedisHealth,
+  checkQueueHealth,
 };
 
 export {
   getHealthStatus,
   getReadinessStatus,
   checkMongoHealth,
-  checkRedisHealth
+  checkRedisHealth,
+  checkQueueHealth,
 };
 
 export default healthCheck;

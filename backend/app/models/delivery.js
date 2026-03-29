@@ -119,7 +119,6 @@ const deliverySchema = new mongoose.Schema(
 
 deliverySchema.index({ location: "2dsphere" });
 deliverySchema.index({ isOnline: 1, isVerified: 1 });
-deliverySchema.index({ phone: 1 }, { unique: true });
 
 deliverySchema.virtual('id').get(function () {
     return this._id.toHexString();

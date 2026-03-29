@@ -1,8 +1,8 @@
 import mongoose from "mongoose";
-import crypto from "crypto";
 import Order from "../models/order.js";
 import Product from "../models/product.js";
 import * as logger from "./logger.js";
+import { buildCheckoutGroupId } from "./orderIdService.js";
 
 /**
  * Multi-Seller Checkout Service
@@ -54,9 +54,7 @@ export function groupItemsBySeller(items) {
  * @returns {string} Unique checkout group identifier
  */
 export function generateCheckoutGroupId() {
-  const timestamp = Date.now();
-  const random = crypto.randomBytes(3).toString("hex");
-  return `CG-${timestamp}-${random}`;
+  return buildCheckoutGroupId();
 }
 
 /**

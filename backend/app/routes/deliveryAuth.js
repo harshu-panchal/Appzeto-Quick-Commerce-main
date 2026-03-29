@@ -18,18 +18,12 @@ import {
 import { getRiderWalletSummaryController } from "../controller/adminFinanceController.js";
 
 import { verifyToken, allowRoles } from "../middleware/authMiddleware.js";
-import upload from "../middleware/uploadMiddleware.js";
 
 const router = express.Router();
 console.log("Delivery Auth Routes Loading...");
 
 router.post(
   "/send-signup-otp",
-  upload.fields([
-    { name: "aadhar", maxCount: 1 },
-    { name: "pan", maxCount: 1 },
-    { name: "dl", maxCount: 1 },
-  ]),
   signupDelivery,
 );
 router.post("/send-login-otp", loginDelivery);

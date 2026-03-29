@@ -16,8 +16,8 @@ import {
     HiOutlineCalendarDays,
     HiOutlineClock,
     HiOutlineXMark,
-    HiOutlineCheck,
-    HiOutlineArrowPath
+    HiOutlineArrowPath,
+    HiOutlineArrowTopRightOnSquare
 } from 'react-icons/hi2';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -77,6 +77,25 @@ const PendingSellers = () => {
             String(s.ownerName || '').toLowerCase().includes(searchTerm.toLowerCase())
         );
     }, [pendingSellers, searchTerm]);
+
+    const reviewDocuments = useMemo(() => {
+        if (!viewingSeller) {
+            return [];
+        }
+
+        if (Array.isArray(viewingSeller.documentFiles) && viewingSeller.documentFiles.length) {
+            return viewingSeller.documentFiles;
+        }
+
+        return (viewingSeller.documents || []).map((label, index) => ({
+            key: `legacy-${index}`,
+            label,
+            url: '',
+            fileName: label,
+            isViewable: false,
+            fileType: 'unknown'
+        }));
+    }, [viewingSeller]);
 
     const handleApprove = async (id) => {
         setIsProcessing(true);
@@ -337,24 +356,55 @@ const PendingSellers = () => {
                                             </div>
 
                                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                                {(viewingSeller.documents || []).map((doc, i) => (
-                                                    <div key={i} className="p-4 rounded-2xl border-2 border-slate-50 bg-slate-50/50 hover:bg-white hover:border-indigo-100 transition-all cursor-pointer group">
-                                                        <div className="flex items-center justify-between">
-                                                            <div className="flex items-center gap-3">
-                                                                <div className="h-10 w-10 rounded-xl bg-white flex items-center justify-center shadow-sm group-hover:scale-110 transition-transform">
+                                                {reviewDocuments.length > 0 ? reviewDocuments.map((doc) => (
+                                                    <div
+                                                        key={doc.key}
+                                                        className={`p-4 rounded-2xl border-2 transition-all group ${
+                                                            doc.isViewable
+                                                                ? 'border-slate-50 bg-slate-50/50 hover:bg-white hover:border-indigo-100'
+                                                                : 'border-slate-100 bg-slate-50/70'
+                                                        }`}
+                                                    >
+                                                        <div className="flex items-center justify-between gap-4">
+                                                            <div className="flex items-center gap-3 min-w-0">
+                                                                <div className="h-10 w-10 rounded-xl bg-white flex items-center justify-center shadow-sm shrink-0 group-hover:scale-110 transition-transform">
                                                                     <HiOutlineDocumentText className="h-5 w-5 text-indigo-400" />
                                                                 </div>
-                                                                <div>
-                                                                    <p className="text-xs font-bold text-slate-700">{doc}</p>
-                                                                    <p className="text-[9px] font-bold text-emerald-500 uppercase tracking-tighter">SECURE PDF</p>
+                                                                <div className="min-w-0">
+                                                                    <p className="text-xs font-bold text-slate-700">{doc.label}</p>
+                                                                    <p className={`text-[9px] font-bold uppercase tracking-tighter truncate ${
+                                                                        doc.isViewable ? 'text-emerald-500' : 'text-amber-500'
+                                                                    }`}>
+                                                                        {doc.isViewable
+                                                                            ? doc.fileType === 'pdf'
+                                                                                ? 'SECURE PDF'
+                                                                                : 'SECURE IMAGE'
+                                                                            : 'FILE LINK NOT AVAILABLE'}
+                                                                    </p>
                                                                 </div>
                                                             </div>
-                                                            <div className="h-6 w-6 rounded-full bg-emerald-500 flex items-center justify-center text-white">
-                                                                <HiOutlineCheck className="h-3.5 w-3.5" />
-                                                            </div>
+
+                                                            {doc.isViewable ? (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => window.open(doc.url, '_blank', 'noopener,noreferrer')}
+                                                                    className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-900 text-white text-[10px] font-bold uppercase tracking-wider hover:bg-slate-800 transition-colors shrink-0"
+                                                                >
+                                                                    <HiOutlineArrowTopRightOnSquare className="h-3.5 w-3.5" />
+                                                                    <span>View</span>
+                                                                </button>
+                                                            ) : (
+                                                                <div className="h-6 w-6 rounded-full bg-amber-100 flex items-center justify-center text-amber-600 shrink-0">
+                                                                    <HiOutlineXMark className="h-3.5 w-3.5" />
+                                                                </div>
+                                                            )}
                                                         </div>
                                                     </div>
-                                                ))}
+                                                )) : (
+                                                    <div className="md:col-span-2 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center">
+                                                        <p className="text-sm font-bold text-slate-500">No documents were submitted with this application.</p>
+                                                    </div>
+                                                )}
                                             </div>
 
                                             <div className="bg-amber-50 rounded-xl p-6 border border-amber-100/50">

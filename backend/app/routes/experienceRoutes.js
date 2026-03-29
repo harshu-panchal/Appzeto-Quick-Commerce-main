@@ -12,7 +12,6 @@ import {
   upsertHeroConfig,
 } from "../controller/experienceController.js";
 import { verifyToken, allowRoles } from "../middleware/authMiddleware.js";
-import upload from "../middleware/uploadMiddleware.js";
 
 const router = express.Router();
 
@@ -71,7 +70,6 @@ router.post(
   "/admin/experience/upload-banner",
   verifyToken,
   allowRoles("admin"),
-  upload.single("image"),
   uploadBannerImage
 );
 
@@ -80,4 +78,3 @@ router.get("/experience", getPublicExperienceSections);
 router.get("/experience/hero", getPublicHeroConfig);
 
 export default router;
-

@@ -96,9 +96,14 @@ export function parseCursor(cursor) {
       throw new Error("Invalid cursor format");
     }
     
+    const timestamp = new Date(data.timestamp);
+    if (Number.isNaN(timestamp.getTime())) {
+      throw new Error("Invalid cursor timestamp");
+    }
+
     return {
       id: data.id,
-      timestamp: new Date(data.timestamp),
+      timestamp,
     };
   } catch (error) {
     logger.warn(`[Pagination] Failed to parse cursor: ${error.message}`);
@@ -117,10 +122,17 @@ export function encodeCursor(lastItem) {
   if (!lastItem || !lastItem._id) {
     return null;
   }
+
+  const createdAt = lastItem.createdAt instanceof Date
+    ? lastItem.createdAt
+    : new Date(lastItem.createdAt || Date.now());
+  const timestamp = Number.isNaN(createdAt.getTime())
+    ? new Date().toISOString()
+    : createdAt.toISOString();
   
   const cursorData = {
     id: lastItem._id.toString(),
-    timestamp: lastItem.createdAt ? lastItem.createdAt.toISOString() : new Date().toISOString(),
+    timestamp,
   };
   
   const encoded = Buffer.from(JSON.stringify(cursorData)).toString("base64");

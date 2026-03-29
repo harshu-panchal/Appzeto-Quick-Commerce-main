@@ -31,6 +31,10 @@ import {
 } from "../services/finance/pricingService.js";
 import { distanceMeters } from "../utils/geoUtils.js";
 import {
+  fetchAvailableOrdersForDelivery,
+  fetchSellerOrdersPage,
+} from "../services/orderQueryService.js";
+import {
   orderMatchQueryFromRouteParam,
   orderMatchQueryFlexible,
 } from "../utils/orderLookup.js";
@@ -142,15 +146,12 @@ export const placeOrder = async (req, res) => {
       return handleResponse(res, 401, "Unauthorized");
     }
 
-    const { address, payment, pricing, timeSlot, items, paymentMode: paymentModeRaw, distanceKm } =
+    const { address, payment, timeSlot, items, paymentMode: paymentModeRaw } =
       req.body || {};
 
     const payload = validateWithJoi(createFinanceOrderSchema, {
       items,
       address,
-      distanceKm,
-      discountTotal: pricing?.discount || 0,
-      taxTotal: pricing?.gst || 0,
       paymentMode:
         normalizePaymentMode(paymentModeRaw) ||
         normalizePaymentMode(payment?.paymentMode) ||
@@ -160,7 +161,7 @@ export const placeOrder = async (req, res) => {
     });
 
     const idempotencyKey = String(req.headers?.["idempotency-key"] || "").trim() || null;
-    const { order, duplicate } = await placeOrderAtomic({
+    const placement = await placeOrderAtomic({
       customerId,
       payload,
       idempotencyKey,
@@ -168,11 +169,19 @@ export const placeOrder = async (req, res) => {
 
     return handleResponse(
       res,
-      duplicate ? 200 : 201,
-      duplicate
+      placement.duplicate ? 200 : 201,
+      placement.duplicate
         ? "Duplicate request resolved using existing order"
         : "Order placed successfully",
-      order,
+      {
+        order: placement.order,
+        orders: placement.orders,
+        checkoutGroup: placement.checkoutGroup,
+        paymentRef:
+          placement.checkoutGroup?.checkoutGroupId ||
+          placement.order?.orderId ||
+          null,
+      },
     );
   } catch (error) {
     console.error("Place Order Error:", error);
@@ -185,15 +194,31 @@ export const placeOrder = async (req, res) => {
 export const getMyOrders = async (req, res) => {
   try {
     const customerId = req.user.id;
-    const orders = await Order.find({ customer: customerId })
-      .select(
-        "orderId customer seller items address payment pricing status workflowStatus workflowVersion returnStatus timeSlot createdAt",
-      )
-      .sort({ createdAt: -1 })
-      .populate("items.product", "name mainImage price salePrice")
-      .lean();
+    const { page, limit, skip } = getPagination(req, {
+      defaultLimit: 20,
+      maxLimit: 100,
+    });
 
-    return handleResponse(res, 200, "Orders fetched successfully", orders);
+    const [orders, total] = await Promise.all([
+      Order.find({ customer: customerId })
+        .select(
+          "orderId checkoutGroupId customer seller items address payment pricing status workflowStatus workflowVersion returnStatus timeSlot createdAt",
+        )
+        .sort({ createdAt: -1, _id: -1 })
+        .skip(skip)
+        .limit(limit)
+        .populate("items.product", "name mainImage price salePrice")
+        .lean(),
+      Order.countDocuments({ customer: customerId }),
+    ]);
+
+    return handleResponse(res, 200, "Orders fetched successfully", {
+      items: orders,
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit) || 1,
+    });
   } catch (error) {
     return handleResponse(res, 500, error.message);
   }
@@ -238,7 +263,7 @@ export const getSellerReturns = async (req, res) => {
 
     const [orders, total] = await Promise.all([
       Order.find(query)
-        .sort({ returnRequestedAt: -1, createdAt: -1 })
+        .sort({ returnRequestedAt: -1, createdAt: -1, _id: -1 })
         .skip(skip)
         .limit(limit)
         .populate("customer", "name phone")
@@ -1148,42 +1173,6 @@ export const getSellerOrders = async (req, res) => {
   try {
     const { id: userId, role } = req.user;
     const { startDate, endDate, status: statusParam } = req.query;
-
-    // If admin, fetch all orders. If seller, fetch only their orders.
-    const query = role === "admin" ? {} : { seller: userId };
-
-    /**
-     * Admin sidebar uses URL segments (e.g. processed, out-for-delivery) that
-     * do not match DB enum values (confirmed/packed, out_for_delivery).
-     */
-    if (statusParam && statusParam !== "all") {
-      if (statusParam === "pending") {
-        query.status = "pending";
-      } else if (statusParam === "processed") {
-        query.status = { $in: ["confirmed", "packed"] };
-      } else if (statusParam === "out-for-delivery") {
-        query.status = "out_for_delivery";
-      } else if (statusParam === "delivered") {
-        query.status = "delivered";
-      } else if (statusParam === "cancelled") {
-        query.status = "cancelled";
-      } else if (statusParam === "returned") {
-        query.returnStatus = { $ne: "none" };
-      }
-    }
-
-    if (startDate || endDate) {
-      query.createdAt = {};
-      if (startDate) {
-        query.createdAt.$gte = new Date(startDate);
-      }
-      if (endDate) {
-        // include entire end date day
-        const end = new Date(endDate);
-        end.setHours(23, 59, 59, 999);
-        query.createdAt.$lte = end;
-      }
-    }
     console.log("Fetching Orders - User role:", role, "User ID:", userId);
 
     const { page, limit, skip } = getPagination(req, {
@@ -1191,17 +1180,15 @@ export const getSellerOrders = async (req, res) => {
       maxLimit: 100,
     });
 
-    const orders = await Order.find(query)
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .populate("customer", "name phone")
-      .populate("items.product", "name mainImage price salePrice")
-      .populate("deliveryBoy", "name phone")
-      .populate("seller", "shopName name")
-      .lean();
-
-    const total = await Order.countDocuments(query);
+    const { orders, total } = await fetchSellerOrdersPage({
+      role,
+      userId,
+      statusParam,
+      startDate,
+      endDate,
+      skip,
+      limit,
+    });
 
     console.log("Fetched Orders Page:", page, "Count:", orders.length);
 
@@ -1237,13 +1224,12 @@ export const getAvailableOrders = async (req, res) => {
       );
     }
 
-    // 1. Get delivery boy's location
-    const deliveryPartner = await Delivery.findById(userId);
-    if (
-      !deliveryPartner ||
-      !deliveryPartner.location ||
-      !deliveryPartner.location.coordinates
-    ) {
+    const { requiresLocation, orders } = await fetchAvailableOrdersForDelivery({
+      userId,
+      requestedLimit: req.query.limit,
+    });
+
+    if (requiresLocation) {
       return handleResponse(
         res,
         200,
@@ -1252,94 +1238,15 @@ export const getAvailableOrders = async (req, res) => {
       );
     }
 
-    // 2. Find nearby sellers (within 5km)
-    let nearbySellers = await Seller.find({
-      location: {
-        $near: {
-          $geometry: deliveryPartner.location,
-          $maxDistance: 5000, // 5km
-        },
-      },
-    }).select("_id");
-
-    let sellerIds = nearbySellers.map((s) => s._id);
-
-    // FALLBACK: If in development/testing and no nearby sellers found, show all available orders
-    if (sellerIds.length === 0 && process.env.NODE_ENV !== "production") {
-      console.log(
-        `DEV LOG - Radius search found 0 sellers. Bypassing radius check for Delivery Partner: ${userId}`,
-      );
-      const allSellers = await Seller.find({}).select("_id");
-      sellerIds = allSellers.map((s) => s._id);
-    }
-
-    const maxLimit = 50;
-    const requestedLimit = parseInt(req.query.limit, 10);
-    const limit =
-      Number.isFinite(requestedLimit) && requestedLimit > 0
-        ? Math.min(requestedLimit, maxLimit)
-        : 20;
-
-    const [dlng, dlat] = deliveryPartner.location.coordinates;
-
-    const v2Orders = await Order.find({
-      workflowVersion: { $gte: 2 },
-      workflowStatus: WORKFLOW_STATUS.DELIVERY_SEARCH,
-      deliveryBoy: null,
-      seller: { $in: sellerIds },
-      skippedBy: { $nin: [userId] },
-    })
-      .sort({ createdAt: -1 })
-      .limit(limit)
-      .populate("customer", "name phone")
-      .populate("seller", "shopName address name location serviceRadius")
-      .lean();
-
-    const v2Filtered = v2Orders.filter((o) => {
-      const coords = o.seller?.location?.coordinates;
-      if (!Array.isArray(coords) || coords.length < 2) return true;
-      const [slng, slat] = coords;
-      const searchR = o.deliverySearchMeta?.radiusMeters || 5000;
-      const serviceKm = Number(o.seller?.serviceRadius ?? 5);
-      const serviceM = Math.max(serviceKm, 0) * 1000;
-      const maxR = Math.min(searchR, serviceM);
-      return distanceMeters(dlat, dlng, slat, slng) <= maxR;
-    });
-
-    const legacyOrders = await Order.find({
-      $or: [
-        { workflowVersion: { $exists: false } },
-        { workflowVersion: { $lt: 2 } },
-      ],
-      status: { $in: ["confirmed", "packed"] },
-      deliveryBoy: null,
-      seller: { $in: sellerIds },
-      skippedBy: { $nin: [userId] },
-    })
-      .sort({ createdAt: -1 })
-      .limit(limit)
-      .populate("customer", "name phone")
-      .populate("seller", "shopName address name location")
-      .lean();
-
-    const seen = new Set();
-    const merged = [];
-    for (const o of [...v2Filtered, ...legacyOrders]) {
-      if (seen.has(o.orderId)) continue;
-      seen.add(o.orderId);
-      merged.push(o);
-      if (merged.length >= limit) break;
-    }
-
     console.log(
-      `Delivery Partner (${userId}) - Available orders found: ${merged.length}`,
+      `Delivery Partner (${userId}) - Available orders found: ${orders.length}`,
     );
 
     return handleResponse(
       res,
       200,
-      merged.length > 0 ? "Available orders fetched" : "No orders found",
-      merged,
+      orders.length > 0 ? "Available orders fetched" : "No orders found",
+      orders,
     );
   } catch (error) {
     return handleResponse(res, 500, error.message);

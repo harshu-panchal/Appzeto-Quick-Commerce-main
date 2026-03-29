@@ -3,8 +3,8 @@ import HeroConfig from "../models/heroConfig.js";
 import Category from "../models/category.js";
 import Product from "../models/product.js";
 import handleResponse from "../utils/helper.js";
-import { uploadToCloudinary } from "../utils/cloudinary.js";
 import mongoose from "mongoose";
+import { buildKey, getOrSet, getTTL, invalidate } from "../services/cacheService.js";
 
 /* ===============================
    Helpers
@@ -61,6 +61,14 @@ const validateBasePayload = async (body) => {
     status: status || "active",
     config,
   };
+};
+
+const normalizeUrl = (value) => {
+  const normalized = String(value || "").trim();
+  if (!normalized || !/^https?:\/\//i.test(normalized)) {
+    return "";
+  }
+  return normalized;
 };
 
 const validateAndNormalizeConfig = async (displayType, config = {}) => {
@@ -229,6 +237,7 @@ export const createExperienceSection = async (req, res) => {
       order: base.order ?? count,
       config,
     });
+    await invalidate("cache:experience:public:*");
 
     return handleResponse(res, 201, "Experience section created", section);
   } catch (error) {
@@ -265,6 +274,7 @@ export const updateExperienceSection = async (req, res) => {
     existing.config = config;
 
     await existing.save();
+    await invalidate("cache:experience:public:*");
 
     return handleResponse(res, 200, "Experience section updated", existing);
   } catch (error) {
@@ -283,6 +293,7 @@ export const deleteExperienceSection = async (req, res) => {
     if (!section) {
       return handleResponse(res, 404, "Section not found");
     }
+    await invalidate("cache:experience:public:*");
 
     return handleResponse(res, 200, "Experience section deleted");
   } catch (error) {
@@ -318,6 +329,7 @@ export const reorderExperienceSections = async (req, res) => {
     }
 
     await ExperienceSection.bulkWrite(bulkOps);
+    await invalidate("cache:experience:public:*");
 
     return handleResponse(res, 200, "Sections reordered");
   } catch (error) {
@@ -346,9 +358,19 @@ export const getPublicExperienceSections = async (req, res) => {
       query.headerId = headerId;
     }
 
-    const sections = await ExperienceSection.find(query)
-      .sort({ order: 1, createdAt: 1 })
-      .lean();
+    const cacheKey = buildKey(
+      "experience",
+      "public",
+      `${pageType}:${headerId || "root"}`,
+    );
+    const sections = await getOrSet(
+      cacheKey,
+      async () =>
+        ExperienceSection.find(query)
+          .sort({ order: 1, createdAt: 1, _id: 1 })
+          .lean(),
+      getTTL("homepage"),
+    );
 
     return handleResponse(res, 200, "Experience sections fetched", sections);
   } catch (error) {
@@ -361,12 +383,11 @@ export const getPublicExperienceSections = async (req, res) => {
 ================================ */
 export const uploadBannerImage = async (req, res) => {
   try {
-    if (!req.file) {
-      return handleResponse(res, 400, "Image file is required");
+    const url = normalizeUrl(req.body?.url || req.body?.imageUrl);
+    if (!url) {
+      return handleResponse(res, 400, "A valid image URL is required");
     }
-
-    const url = await uploadToCloudinary(req.file.buffer, "experience-banners");
-
+    await invalidate("cache:experience:public:*");
     return handleResponse(res, 200, "Banner image uploaded", { url });
   } catch (error) {
     return handleResponse(res, 500, error.message);
@@ -391,22 +412,31 @@ export const getPublicHeroConfig = async (req, res) => {
       return handleResponse(res, 400, "headerId is required for header pageType");
     }
 
-    let config = null;
-
-    if (pageType === "header") {
-      config = await HeroConfig.findOne({
-        pageType: "header",
-        headerId,
-      }).lean();
-    }
-
-    if (!config && (pageType === "home" || pageType === "header")) {
-      const homeConfig = await HeroConfig.findOne({
-        pageType: "home",
-        headerId: null,
-      }).lean();
-      config = homeConfig;
-    }
+    const cacheKey = buildKey(
+      "experience",
+      "hero",
+      `${pageType}:${headerId || "root"}`,
+    );
+    const config = await getOrSet(
+      cacheKey,
+      async () => {
+        let resolved = null;
+        if (pageType === "header") {
+          resolved = await HeroConfig.findOne({
+            pageType: "header",
+            headerId,
+          }).lean();
+        }
+        if (!resolved && (pageType === "home" || pageType === "header")) {
+          resolved = await HeroConfig.findOne({
+            pageType: "home",
+            headerId: null,
+          }).lean();
+        }
+        return resolved || null;
+      },
+      getTTL("homepage"),
+    );
 
     const payload = config
       ? {
@@ -498,10 +528,10 @@ export const upsertHeroConfig = async (req, res) => {
       { $set: update },
       { new: true, upsert: true, runValidators: true }
     ).lean();
+    await invalidate("cache:experience:hero:*");
 
     return handleResponse(res, 200, "Hero config saved", config);
   } catch (error) {
     return handleResponse(res, 500, error.message);
   }
 };
-

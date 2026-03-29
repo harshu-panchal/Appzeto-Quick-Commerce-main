@@ -6,7 +6,6 @@ import {
     deleteCategory
 } from "../controller/categoryController.js";
 import { verifyToken, allowRoles } from "../middleware/authMiddleware.js";
-import upload from "../middleware/uploadMiddleware.js";
 
 const router = express.Router();
 
@@ -18,7 +17,6 @@ router.post(
     "/",
     verifyToken,
     allowRoles("admin"),
-    upload.single("image"),
     createCategory
 );
 
@@ -26,7 +24,6 @@ router.put(
     "/:id",
     verifyToken,
     allowRoles("admin"),
-    upload.single("image"),
     updateCategory
 );
 

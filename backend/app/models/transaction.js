@@ -47,8 +47,8 @@ const transactionSchema = new mongoose.Schema(
 );
 
 transactionSchema.index({ user: 1, userModel: 1, createdAt: -1 });
+transactionSchema.index({ user: 1, userModel: 1, status: 1, createdAt: -1 });
 transactionSchema.index({ order: 1 });
 transactionSchema.index({ status: 1, type: 1 });
-transactionSchema.index({ reference: 1 }, { unique: true });
 
 export default mongoose.model("Transaction", transactionSchema);

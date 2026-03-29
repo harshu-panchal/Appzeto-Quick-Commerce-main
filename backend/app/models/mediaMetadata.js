@@ -11,6 +11,32 @@ import mongoose from 'mongoose';
 
 const mediaMetadataSchema = new mongoose.Schema(
   {
+    intentId: {
+      type: String,
+      default: null,
+      unique: true,
+      sparse: true,
+      index: true,
+      trim: true,
+    },
+    provider: {
+      type: String,
+      enum: ["cloudinary"],
+      default: "cloudinary",
+      index: true,
+    },
+    status: {
+      type: String,
+      enum: ["pending", "confirmed", "failed", "deleted"],
+      default: "confirmed",
+      index: true,
+    },
+    objectKey: {
+      type: String,
+      default: null,
+      trim: true,
+      index: true,
+    },
     publicId: {
       type: String,
       required: true,
@@ -20,7 +46,8 @@ const mediaMetadataSchema = new mongoose.Schema(
     },
     secureUrl: {
       type: String,
-      required: true,
+      required: false,
+      default: "",
       trim: true
     },
     resourceType: {
@@ -31,9 +58,22 @@ const mediaMetadataSchema = new mongoose.Schema(
     },
     format: {
       type: String,
-      required: true,
+      required: false,
+      default: "",
       trim: true,
       lowercase: true
+    },
+    mimeType: {
+      type: String,
+      default: null,
+      trim: true,
+      lowercase: true,
+    },
+    extension: {
+      type: String,
+      default: null,
+      trim: true,
+      lowercase: true,
     },
     width: {
       type: Number,
@@ -45,8 +85,24 @@ const mediaMetadataSchema = new mongoose.Schema(
     },
     bytes: {
       type: Number,
-      required: true,
+      required: false,
+      default: 0,
       min: 0
+    },
+    bytesExpected: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
+    etag: {
+      type: String,
+      default: null,
+      trim: true,
+    },
+    checksum: {
+      type: String,
+      default: null,
+      trim: true,
     },
     uploadedBy: {
       type: mongoose.Schema.Types.ObjectId,
@@ -82,6 +138,14 @@ const mediaMetadataSchema = new mongoose.Schema(
     },
     deletedAt: {
       type: Date
+    },
+    expiresAt: {
+      type: Date,
+      default: null,
+    },
+    confirmedAt: {
+      type: Date,
+      default: null,
     }
   },
   {
@@ -93,6 +157,14 @@ const mediaMetadataSchema = new mongoose.Schema(
 mediaMetadataSchema.index({ uploadedBy: 1, uploadedByModel: 1 });
 mediaMetadataSchema.index({ entityType: 1, entityId: 1 });
 mediaMetadataSchema.index({ isDeleted: 1, createdAt: -1 });
+mediaMetadataSchema.index({ status: 1, expiresAt: 1 });
+mediaMetadataSchema.index(
+  { expiresAt: 1 },
+  {
+    expireAfterSeconds: 0,
+    partialFilterExpression: { status: "pending", expiresAt: { $type: "date" } },
+  },
+);
 
 /**
  * Mark media as deleted (soft delete)
@@ -100,6 +172,7 @@ mediaMetadataSchema.index({ isDeleted: 1, createdAt: -1 });
 mediaMetadataSchema.methods.softDelete = async function() {
   this.isDeleted = true;
   this.deletedAt = new Date();
+  this.status = "deleted";
   await this.save();
 };
 
@@ -158,27 +231,15 @@ mediaMetadataSchema.statics.validatePublicId = function(publicId) {
   if (!publicId || typeof publicId !== 'string') {
     return false;
   }
-  
-  // Expected format: {folder}/{uuid}
-  // Example: quick-commerce/products/a1b2c3d4-e5f6-7890-abcd-ef1234567890
-  const parts = publicId.split('/');
-  
-  if (parts.length < 2) {
-    return false;
-  }
-  
-  // Check if last part looks like a UUID
-  const lastPart = parts[parts.length - 1];
-  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  
-  return uuidPattern.test(lastPart);
+  const normalized = publicId.trim();
+  return /^[-a-zA-Z0-9_/]+$/.test(normalized) && normalized.includes("/");
 };
 
 /**
  * Find active (non-deleted) media
  */
 mediaMetadataSchema.statics.findActive = function(query = {}) {
-  return this.find({ ...query, isDeleted: false });
+  return this.find({ ...query, isDeleted: false, status: "confirmed" });
 };
 
 /**

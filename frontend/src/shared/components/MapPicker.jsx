@@ -3,7 +3,6 @@ import {
   GoogleMap,
   useJsApiLoader,
   Marker,
-  Circle,
   Autocomplete,
 } from "@react-google-maps/api";
 import { Search, MapPin, Navigation, Loader2 } from "lucide-react";
@@ -14,12 +13,55 @@ import Input from "./ui/Input";
 const libraries = ["places"];
 const mapContainerStyle = {
   width: "100%",
-  height: "400px",
+  height: "340px",
 };
 
 const defaultCenter = {
   lat: 20.5937, // India center
   lng: 78.9629,
+};
+
+const ADDRESS_COMPONENT_PRIORITY = {
+  locality: [
+    "sublocality_level_1",
+    "sublocality",
+    "neighborhood",
+    "locality",
+    "administrative_area_level_3",
+  ],
+  city: [
+    "locality",
+    "administrative_area_level_3",
+    "administrative_area_level_2",
+  ],
+  state: ["administrative_area_level_1"],
+  pincode: ["postal_code"],
+};
+
+const getAddressComponent = (components = [], types = []) => {
+  const match = components.find((component) =>
+    types.some((type) => component.types?.includes(type)),
+  );
+  return match?.long_name || "";
+};
+
+const extractAddressDetails = (result) => {
+  const components = result?.address_components || [];
+  const locality =
+    getAddressComponent(components, ADDRESS_COMPONENT_PRIORITY.locality) || "";
+  const city =
+    getAddressComponent(components, ADDRESS_COMPONENT_PRIORITY.city) || "";
+  const state =
+    getAddressComponent(components, ADDRESS_COMPONENT_PRIORITY.state) || "";
+  const pincode =
+    getAddressComponent(components, ADDRESS_COMPONENT_PRIORITY.pincode) || "";
+
+  return {
+    locality,
+    city,
+    state,
+    pincode,
+  };
 };
 
 const MapPicker = ({
@@ -29,14 +71,27 @@ const MapPicker = ({
   initialLocation = null,
   initialRadius = 5,
   maxRadius = 20,
+  preferCurrentLocationOnOpen = false,
 }) => {
   const [center, setCenter] = useState(initialLocation || defaultCenter);
   const [marker, setMarker] = useState(initialLocation);
   const [radius, setRadius] = useState(initialRadius);
-  const [searchResult, setSearchResult] = useState(null);
   const [address, setAddress] = useState("");
   const [isGeocoding, setIsGeocoding] = useState(false);
+  const mapRef = useRef(null);
   const autocompleteRef = useRef(null);
+  const circleRef = useRef(null);
+
+  const clearCircleOverlay = useCallback(() => {
+    if (circleRef.current) {
+      circleRef.current.setMap(null);
+      circleRef.current = null;
+    }
+  }, []);
+
+  const handleMapLoad = useCallback((mapInstance) => {
+    mapRef.current = mapInstance;
+  }, []);
 
   const { isLoaded, loadError } = useJsApiLoader({
     id: "google-map-script",
@@ -51,26 +106,48 @@ const MapPicker = ({
     }
   }, [initialLocation]);
 
+  useEffect(() => {
+    if (!isOpen) return;
+
+    setRadius(initialRadius);
+
+    if (preferCurrentLocationOnOpen) {
+      getCurrentLocation({ silent: true, fallbackToInitial: true });
+      return;
+    }
+
+    if (initialLocation) {
+      setCenter(initialLocation);
+      setMarker(initialLocation);
+    } else {
+      setCenter(defaultCenter);
+      setMarker(null);
+    }
+  }, [isOpen, initialLocation, initialRadius, preferCurrentLocationOnOpen]);
+
   const onMapClick = useCallback((e) => {
+    clearCircleOverlay();
     const newPos = {
       lat: e.latLng.lat(),
       lng: e.latLng.lng(),
     };
     setMarker(newPos);
-  }, []);
+  }, [clearCircleOverlay]);
 
   const onMarkerDragEnd = useCallback((e) => {
+    clearCircleOverlay();
     const newPos = {
       lat: e.latLng.lat(),
       lng: e.latLng.lng(),
     };
     setMarker(newPos);
-  }, []);
+  }, [clearCircleOverlay]);
 
   const handlePlaceChanged = () => {
     if (autocompleteRef.current) {
       const place = autocompleteRef.current.getPlace();
       if (place.geometry) {
+        clearCircleOverlay();
         const newPos = {
           lat: place.geometry.location.lat(),
           lng: place.geometry.location.lng(),
@@ -82,10 +159,14 @@ const MapPicker = ({
     }
   };
 
-  const getCurrentLocation = () => {
+  const getCurrentLocation = ({
+    silent = false,
+    fallbackToInitial = false,
+  } = {}) => {
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (position) => {
+          clearCircleOverlay();
           const newPos = {
             lat: position.coords.latitude,
             lng: position.coords.longitude,
@@ -94,11 +175,67 @@ const MapPicker = ({
           setMarker(newPos);
         },
         () => {
-          alert("Unable to retrieve your location. Please select manually.");
+          if (fallbackToInitial && initialLocation) {
+            setCenter(initialLocation);
+            setMarker(initialLocation);
+            return;
+          }
+
+          if (!silent) {
+            alert("Unable to retrieve your location. Please select manually.");
+          }
         },
       );
+      return;
+    }
+
+    if (fallbackToInitial && initialLocation) {
+      setCenter(initialLocation);
+      setMarker(initialLocation);
+      return;
+    }
+
+    if (!silent) {
+      alert("Unable to retrieve your location. Please select manually.");
     }
   };
+
+  useEffect(() => {
+    return () => {
+      clearCircleOverlay();
+      mapRef.current = null;
+    };
+  }, [clearCircleOverlay]);
+
+  useEffect(() => {
+    if (!isLoaded || !mapRef.current || !window.google?.maps) {
+      return;
+    }
+
+    clearCircleOverlay();
+
+    if (!marker) {
+      return;
+    }
+
+    circleRef.current = new window.google.maps.Circle({
+      map: mapRef.current,
+      center: marker,
+      radius: radius * 1000,
+      fillColor: "#0ea5e9",
+      fillOpacity: 0.1,
+      strokeColor: "#0ea5e9",
+      strokeOpacity: 0.5,
+      strokeWeight: 2,
+      clickable: false,
+      editable: false,
+      zIndex: 1,
+    });
+
+    return () => {
+      clearCircleOverlay();
+    };
+  }, [isLoaded, marker, radius, clearCircleOverlay]);
 
   const handleConfirm = async () => {
     if (!marker) {
@@ -121,6 +258,7 @@ const MapPicker = ({
         ...marker,
         radius,
         address: result.formatted_address,
+        ...extractAddressDetails(result),
       });
       onClose();
     } catch (error) {
@@ -152,7 +290,7 @@ const MapPicker = ({
       isOpen={isOpen}
       onClose={onClose}
       title="Select Shop Location"
-      size="lg"
+      size="md"
       footer={
         <div className="flex justify-between w-full items-center">
           <div className="text-sm text-gray-500">
@@ -205,11 +343,12 @@ const MapPicker = ({
 
         <div className="rounded-xl overflow-hidden border border-gray-200 shadow-inner relative">
           {!isLoaded ? (
-            <div className="h-[400px] flex items-center justify-center bg-gray-50">
+            <div className="h-[340px] flex items-center justify-center bg-gray-50">
               <Loader2 className="w-8 h-8 animate-spin text-primary" />
             </div>
           ) : (
             <GoogleMap
+              onLoad={handleMapLoad}
               mapContainerStyle={mapContainerStyle}
               center={center}
               zoom={15}
@@ -222,28 +361,13 @@ const MapPicker = ({
                 fullscreenControl: false,
               }}>
               {marker && (
-                <>
-                  <Marker
-                    position={marker}
-                    draggable={true}
-                    onDragEnd={onMarkerDragEnd}
-                    animation={window.google.maps.Animation.DROP}
-                  />
-                  <Circle
-                    center={marker}
-                    radius={radius * 1000} // KM to Meters
-                    options={{
-                      fillColor: "#0ea5e9",
-                      fillOpacity: 0.1,
-                      strokeColor: "#0ea5e9",
-                      strokeOpacity: 0.5,
-                      strokeWeight: 2,
-                      clickable: false,
-                      editable: false,
-                      zIndex: 1,
-                    }}
-                  />
-                </>
+                <Marker
+                  key={`${marker.lat.toFixed(6)}-${marker.lng.toFixed(6)}`}
+                  position={marker}
+                  draggable={true}
+                  onDragEnd={onMarkerDragEnd}
+                  animation={window.google.maps.Animation.DROP}
+                />
               )}
             </GoogleMap>
           )}

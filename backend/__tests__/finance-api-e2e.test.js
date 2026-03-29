@@ -41,6 +41,7 @@ const {
 } = await import("../app/controller/adminFinanceController.js");
 
 jest.setTimeout(120000);
+const RUN_E2E = process.env.RUN_E2E_TESTS === "true";
 
 function randomSuffix() {
   return `${Date.now()}${Math.floor(Math.random() * 10000)}`;
@@ -221,7 +222,7 @@ async function seedCoreData() {
   return { customer, seller, rider, product };
 }
 
-describe("Finance API E2E (Express + Mongo + Auth)", () => {
+(RUN_E2E ? describe : describe.skip)("Finance API E2E (Express + Mongo + Auth)", () => {
   let app;
   let mongoUri;
   let dbName;

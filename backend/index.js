@@ -10,7 +10,6 @@ import { registerOrderSocketGetter } from "./app/services/orderSocketEmitter.js"
 import {
   globalApiRateLimiter,
 } from "./app/middleware/securityMiddlewares.js";
-import { requestContextMiddleware } from "./app/middleware/requestContext.js";
 import { structuredRequestLogger, correlationIdMiddleware } from "./app/middleware/requestLogger.js";
 import { trackInFlightRequests } from "./app/middleware/metricsMiddleware.js";
 import { errorHandler, notFoundHandler } from "./app/middleware/errorMiddleware.js";
@@ -20,7 +19,8 @@ import {
   registerShutdownHandlers,
   registerHttpServer,
   registerSocketIO,
-  registerBullQueue
+  registerBullQueue,
+  registerSchedulerStopper,
 } from "./app/core/shutdown.js";
 import { registerScheduledJob, startScheduledJobs } from "./app/services/distributedScheduler.js";
 import { getOrderAutoCancelJobHandler, getOrderAutoCancelJobInterval } from "./app/jobs/orderAutoCancelJob.js";
@@ -30,6 +30,7 @@ import {
   isPayoutBatchJobEnabled
 } from "./app/jobs/payoutBatchJob.js";
 import logger from "./app/services/logger.js";
+import { stopScheduledJobs } from "./app/services/distributedScheduler.js";
 
 dotenv.config();
 
@@ -92,7 +93,6 @@ function createApp() {
 
   // Middleware
   app.use(correlationIdMiddleware);
-  app.use(requestContextMiddleware);
   app.use(structuredRequestLogger);
   app.use(trackInFlightRequests);
   app.use(helmet());
@@ -125,6 +125,24 @@ function createApp() {
         correlationId: req.correlationId,
       },
     });
+  });
+
+  app.get("/ready", async (req, res) => {
+    try {
+      const { getReadinessStatus } = await import("./app/services/healthCheck.js");
+      const status = await getReadinessStatus();
+      if (status.ready) {
+        return res.status(200).json({ success: true, error: false, result: status });
+      }
+      return res.status(503).json({ success: false, error: true, result: status });
+    } catch (error) {
+      return res.status(503).json({
+        success: false,
+        error: true,
+        message: "Readiness check failed",
+        result: { message: error.message },
+      });
+    }
   });
 
   // Setup all routes (includes /health, /metrics, /api/*)
@@ -221,6 +239,7 @@ async function startScheduler() {
   
   // Start all registered jobs
   await startScheduledJobs();
+  registerSchedulerStopper(stopScheduledJobs);
   
   logger.info('Scheduler started', {
     jobs: isPayoutBatchJobEnabled() 
@@ -247,6 +266,19 @@ async function startHealthCheckServer() {
   });
   
   app.get('/health/ready', async (req, res) => {
+    try {
+      const status = await getReadinessStatus();
+      if (status.ready) {
+        res.status(200).json({ success: true, result: status });
+      } else {
+        res.status(503).json({ success: false, result: status });
+      }
+    } catch (error) {
+      res.status(503).json({ success: false, error: error.message });
+    }
+  });
+
+  app.get('/ready', async (req, res) => {
     try {
       const status = await getReadinessStatus();
       if (status.ready) {

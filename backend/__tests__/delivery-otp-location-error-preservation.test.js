@@ -161,8 +161,18 @@ describe('Preservation Property Tests: Non-Geolocation Error Behavior', () => {
 
     test('Property-based: Random valid coordinates return location data', async () => {
       // Generate random valid latitude (-90 to 90) and longitude (-180 to 180)
-      const latArbitrary = fc.double({ min: -90, max: 90 });
-      const lngArbitrary = fc.double({ min: -180, max: 180 });
+      const latArbitrary = fc.double({
+        min: -90,
+        max: 90,
+        noNaN: true,
+        noDefaultInfinity: true,
+      });
+      const lngArbitrary = fc.double({
+        min: -180,
+        max: 180,
+        noNaN: true,
+        noDefaultInfinity: true,
+      });
       
       await fc.assert(
         fc.asyncProperty(latArbitrary, lngArbitrary, async (lat, lng) => {

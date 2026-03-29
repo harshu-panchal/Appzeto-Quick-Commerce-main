@@ -1,5 +1,6 @@
 import Transaction from "../models/transaction.js";
 import Order from "../models/order.js";
+import CheckoutGroup from "../models/checkoutGroup.js";
 import { releaseReservedStockForOrder } from "./stockService.js";
 
 /**
@@ -19,4 +20,25 @@ export async function compensateOrderCancellation(order, orderIdString) {
     { reference: orderIdString },
     { status: "Failed" },
   );
+
+  if (existing?.checkoutGroupId) {
+    const activeCount = await Order.countDocuments({
+      checkoutGroupId: existing.checkoutGroupId,
+      status: { $ne: "cancelled" },
+      workflowStatus: { $ne: "CANCELLED" },
+    });
+    if (activeCount === 0) {
+      await CheckoutGroup.updateOne(
+        { checkoutGroupId: existing.checkoutGroupId },
+        {
+          $set: {
+            status: "CANCELLED",
+            paymentStatus: "FAILED",
+            "stockReservation.status": "RELEASED",
+            "stockReservation.releasedAt": new Date(),
+          },
+        },
+      );
+    }
+  }
 }

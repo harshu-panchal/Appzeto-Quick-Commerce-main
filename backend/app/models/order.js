@@ -441,9 +441,8 @@ orderSchema.index({ orderStatus: 1, "settlementStatus.overall": 1, createdAt: -1
 orderSchema.index({ seller: 1, "settlementStatus.sellerPayout": 1, status: 1 });
 orderSchema.index({ deliveryBoy: 1, "settlementStatus.riderPayout": 1, status: 1 });
 orderSchema.index(
-  { customer: 1, "placement.idempotencyKey": 1 },
+  { customer: 1, "placement.idempotencyKey": 1, createdAt: -1 },
   {
-    unique: true,
     partialFilterExpression: {
       "placement.idempotencyKey": { $type: "string" },
     },
@@ -453,6 +452,7 @@ orderSchema.index({ "stockReservation.status": 1, "stockReservation.expiresAt": 
 
 // Phase 2: Multi-seller checkout index
 orderSchema.index({ checkoutGroupId: 1, createdAt: -1 });
+orderSchema.index({ checkoutGroupId: 1, checkoutGroupIndex: 1 });
 
 // Phase 2: TTL index for idempotency key expiry
 orderSchema.index(
