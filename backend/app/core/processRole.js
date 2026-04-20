@@ -22,7 +22,9 @@ function getDefaultRole() {
  * @returns {'api' | 'worker' | 'scheduler' | 'all'} The current process role
  */
 function getProcessRole() {
-  const configuredRole = process.env.APP_ROLE || process.env.PROCESS_ROLE || getDefaultRole();
+  // Prefer PROCESS_ROLE over legacy APP_ROLE to avoid accidental overrides
+  // (e.g. a shared APP_ROLE env var in hosting dashboards).
+  const configuredRole = process.env.PROCESS_ROLE || process.env.APP_ROLE || getDefaultRole();
   const role = String(configuredRole).toLowerCase().trim();
   return role;
 }

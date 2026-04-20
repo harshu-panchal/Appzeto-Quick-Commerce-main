@@ -12,7 +12,7 @@ Phase 1 introduces:
 - Prometheus metrics
 - Graceful shutdown
 
-All changes are **backward compatible**. The default `PROCESS_ROLE=all` keeps existing behavior.
+In development, the default `PROCESS_ROLE=all` keeps existing behavior.
 
 ---
 
@@ -21,6 +21,8 @@ All changes are **backward compatible**. The default `PROCESS_ROLE=all` keeps ex
 **Goal:** Deploy new code without changing any behavior.
 
 ### Steps
+
+In production (`NODE_ENV=production`), do not use `PROCESS_ROLE=all`. Deploy separate services with `PROCESS_ROLE=api`, `PROCESS_ROLE=worker`, and `PROCESS_ROLE=scheduler`.
 
 1. **Deploy with `PROCESS_ROLE=all`** (default — no change needed)
 

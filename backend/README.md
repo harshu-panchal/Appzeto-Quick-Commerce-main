@@ -18,7 +18,7 @@ The app supports four roles via `PROCESS_ROLE`:
 
 | Role | Starts | Use for |
 |------|--------|---------|
-| `all` (default) | Everything | Development, single-instance |
+| `all` (default) | Everything | Development only (not allowed in `NODE_ENV=production`) |
 | `api` | HTTP + WebSocket | Production API replicas |
 | `worker` | Bull queue processor | Background job processing |
 | `scheduler` | Scheduled jobs | Cron-like recurring tasks |
@@ -83,7 +83,7 @@ Copy `.env.example` to `.env`. Key variables:
 
 ```bash
 PROCESS_ROLE=all          # api | worker | scheduler | all
-NODE_ENV=development      # production requires Redis
+NODE_ENV=development      # production requires Redis and role separation
 MONGO_URI=...             # MongoDB connection string
 REDIS_URL=...             # Required in production
 JWT_SECRET=...            # Strong random secret

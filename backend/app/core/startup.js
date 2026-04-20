@@ -37,16 +37,20 @@ async function validateDependencies() {
 
   if (isProduction && role === "all") {
     result.valid = false;
-    result.errors.push("APP_ROLE=all is not allowed in production. Use api, worker, or scheduler.");
+    result.errors.push("PROCESS_ROLE=all (or legacy APP_ROLE=all) is not allowed in production. Use api, worker, or scheduler.");
   }
 
-  if (
-    process.env.APP_ROLE &&
-    process.env.PROCESS_ROLE &&
-    String(process.env.APP_ROLE).toLowerCase() !== String(process.env.PROCESS_ROLE).toLowerCase()
-  ) {
-    result.valid = false;
-    result.errors.push("APP_ROLE and PROCESS_ROLE are both set but have different values.");
+  const hasAppRole = Boolean(process.env.APP_ROLE && String(process.env.APP_ROLE).trim());
+  const hasProcessRole = Boolean(process.env.PROCESS_ROLE && String(process.env.PROCESS_ROLE).trim());
+  if (hasAppRole && hasProcessRole) {
+    const appRole = String(process.env.APP_ROLE).toLowerCase().trim();
+    const processRole = String(process.env.PROCESS_ROLE).toLowerCase().trim();
+    if (appRole !== processRole) {
+      result.checks.processRole = {
+        status: "WARN",
+        message: `Both APP_ROLE (${appRole}) and PROCESS_ROLE (${processRole}) are set; PROCESS_ROLE takes precedence.`,
+      };
+    }
   }
   
   // Validate MongoDB connection

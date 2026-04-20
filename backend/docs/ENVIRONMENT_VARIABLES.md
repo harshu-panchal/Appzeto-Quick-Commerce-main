@@ -6,7 +6,8 @@ Complete reference for all environment variables. See `.env.example` for a templ
 
 | Variable | Default | Required | Description |
 |----------|---------|----------|-------------|
-| `PROCESS_ROLE` | `all` | No | Process role: `api`, `worker`, `scheduler`, `all` |
+| `PROCESS_ROLE` | `all` (dev) / `api` (prod) | No | Process role: `api`, `worker`, `scheduler`, `all` (**`all` is not allowed in `NODE_ENV=production`**) |
+| `APP_ROLE` | â€” | No | **Deprecated** alias for `PROCESS_ROLE` (kept for backward compatibility) |
 | `NODE_ENV` | `development` | No | Environment: `development`, `production`, `test` |
 | `PORT` | `7000` | No | HTTP server port (API role only) |
 | `HEALTH_CHECK_PORT` | `9090` | No | Health check port (worker/scheduler roles) |

@@ -11,7 +11,7 @@ The application supports four process roles controlled by `PROCESS_ROLE`:
 | `api` | HTTP server + WebSocket | 7000 | 7000 |
 | `worker` | Bull queue processor | — | 9090 |
 | `scheduler` | Scheduled jobs | — | 9090 |
-| `all` | All components (default) | 7000 | 7000 |
+| `all` | All components (development only; not allowed in production) | 7000 | 7000 |
 
 ## Prerequisites
 
