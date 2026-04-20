@@ -1,0 +1,113 @@
+export const NOTIFICATION_EVENTS = Object.freeze({
+  ORDER_PLACED: "ORDER_PLACED",
+  PAYMENT_SUCCESS: "PAYMENT_SUCCESS",
+  ORDER_CONFIRMED: "ORDER_CONFIRMED",
+  ORDER_PACKED: "ORDER_PACKED",
+  OUT_FOR_DELIVERY: "OUT_FOR_DELIVERY",
+  ORDER_DELIVERED: "ORDER_DELIVERED",
+  ORDER_CANCELLED: "ORDER_CANCELLED",
+  REFUND_INITIATED: "REFUND_INITIATED",
+  REFUND_COMPLETED: "REFUND_COMPLETED",
+  NEW_ORDER: "NEW_ORDER",
+  DELIVERY_ASSIGNED: "DELIVERY_ASSIGNED",
+  NEW_DELIVERY_BROADCAST: "NEW_DELIVERY_BROADCAST",
+  NEW_RETURN_BROADCAST: "NEW_RETURN_BROADCAST",
+  ORDER_READY: "ORDER_READY",
+  // Return Workflow Events
+  RETURN_REQUESTED: "RETURN_REQUESTED",
+  RETURN_APPROVED: "RETURN_APPROVED",
+  RETURN_REJECTED: "RETURN_REJECTED",
+  RETURN_PICKUP_ASSIGNED: "RETURN_PICKUP_ASSIGNED",
+  RETURN_PICKUP_OTP: "RETURN_PICKUP_OTP",
+  RETURN_DROP_OTP: "RETURN_DROP_OTP",
+  RETURN_COMPLETED: "RETURN_COMPLETED",
+  RETURN_QC_PASSED: "RETURN_QC_PASSED",
+  RETURN_QC_FAILED: "RETURN_QC_FAILED",
+});
+
+export const NOTIFICATION_ROLES = Object.freeze({
+  CUSTOMER: "customer",
+  SELLER: "seller",
+  DELIVERY: "delivery",
+  ADMIN: "admin",
+});
+
+export const ROLE_TO_USER_MODEL = Object.freeze({
+  [NOTIFICATION_ROLES.CUSTOMER]: "User",
+  [NOTIFICATION_ROLES.SELLER]: "Seller",
+  [NOTIFICATION_ROLES.DELIVERY]: "Delivery",
+  [NOTIFICATION_ROLES.ADMIN]: "Admin",
+});
+
+export const ROLE_TO_RECIPIENT_MODEL = Object.freeze({
+  [NOTIFICATION_ROLES.CUSTOMER]: "Customer",
+  [NOTIFICATION_ROLES.SELLER]: "Seller",
+  [NOTIFICATION_ROLES.DELIVERY]: "Delivery",
+  [NOTIFICATION_ROLES.ADMIN]: "Admin",
+});
+
+export const DEFAULT_DEDUP_TTL_SECONDS = () =>
+  parseInt(process.env.NOTIFICATION_DEDUP_TTL_SEC || "86400", 10);
+
+export const NOTIFICATION_QUEUE_ATTEMPTS = () =>
+  parseInt(process.env.NOTIFICATION_QUEUE_ATTEMPTS || "3", 10);
+
+export const NOTIFICATION_QUEUE_BACKOFF_MS = () =>
+  parseInt(process.env.NOTIFICATION_QUEUE_BACKOFF_MS || "2000", 10);
+
+export const NOTIFICATION_QUEUE_CONCURRENCY = () =>
+  parseInt(process.env.NOTIFICATION_QUEUE_CONCURRENCY || "20", 10);
+
+export const NOTIFICATION_QUEUE_JOB_TIMEOUT_MS = () =>
+  parseInt(process.env.NOTIFICATION_QUEUE_JOB_TIMEOUT_MS || "30000", 10);
+
+export const NOTIFICATIONS_ENABLED = () =>
+  String(process.env.PUSH_NOTIFICATIONS_ENABLED || "true").toLowerCase() !== "false";
+
+export const INVALID_FCM_TOKEN_CODES = new Set([
+  "messaging/invalid-registration-token",
+  "messaging/registration-token-not-registered",
+]);
+
+export function normalizeNotificationRole(role) {
+  const value = String(role || "").trim().toLowerCase();
+  if (value === "user") return NOTIFICATION_ROLES.CUSTOMER;
+  if (value === "customer") return NOTIFICATION_ROLES.CUSTOMER;
+  if (value === "seller") return NOTIFICATION_ROLES.SELLER;
+  if (value === "delivery") return NOTIFICATION_ROLES.DELIVERY;
+  if (value === "admin") return NOTIFICATION_ROLES.ADMIN;
+  return null;
+}
+
+export function roleFromRecipientModel(recipientModel) {
+  const model = String(recipientModel || "").trim().toLowerCase();
+  if (model === "user" || model === "customer") return NOTIFICATION_ROLES.CUSTOMER;
+  if (model === "seller") return NOTIFICATION_ROLES.SELLER;
+  if (model === "delivery") return NOTIFICATION_ROLES.DELIVERY;
+  if (model === "admin") return NOTIFICATION_ROLES.ADMIN;
+  return null;
+}
+
+export function roleFromEvent(eventType) {
+  switch (eventType) {
+    case NOTIFICATION_EVENTS.NEW_ORDER:
+    case NOTIFICATION_EVENTS.RETURN_REQUESTED:
+      return NOTIFICATION_ROLES.SELLER;
+    case NOTIFICATION_EVENTS.DELIVERY_ASSIGNED:
+    case NOTIFICATION_EVENTS.NEW_DELIVERY_BROADCAST:
+    case NOTIFICATION_EVENTS.NEW_RETURN_BROADCAST:
+    case NOTIFICATION_EVENTS.ORDER_READY:
+    case NOTIFICATION_EVENTS.RETURN_PICKUP_ASSIGNED:
+    case NOTIFICATION_EVENTS.RETURN_DROP_OTP:
+      return NOTIFICATION_ROLES.DELIVERY;
+    case NOTIFICATION_EVENTS.RETURN_APPROVED:
+    case NOTIFICATION_EVENTS.RETURN_REJECTED:
+    case NOTIFICATION_EVENTS.RETURN_PICKUP_OTP:
+    case NOTIFICATION_EVENTS.RETURN_COMPLETED:
+    case NOTIFICATION_EVENTS.RETURN_QC_PASSED:
+    case NOTIFICATION_EVENTS.RETURN_QC_FAILED:
+      return NOTIFICATION_ROLES.CUSTOMER;
+    default:
+      return NOTIFICATION_ROLES.CUSTOMER;
+  }
+}

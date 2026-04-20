@@ -1,0 +1,282 @@
+---
+# API Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: quickcommerce-api
+  labels:
+    app: quickcommerce
+    component: api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: quickcommerce
+      component: api
+  template:
+    metadata:
+      labels:
+        app: quickcommerce
+        component: api
+    spec:
+      containers:
+      - name: api
+        image: quickcommerce:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 7000
+          name: http
+          protocol: TCP
+        env:
+        - name: PROCESS_ROLE
+          value: "api"
+        - name: NODE_ENV
+          value: "production"
+        - name: PORT
+          value: "7000"
+        - name: MONGO_URI
+          valueFrom:
+            secretKeyRef:
+              name: quickcommerce-secrets
+              key: mongo-uri
+        - name: REDIS_URL
+          valueFrom:
+            secretKeyRef:
+              name: quickcommerce-secrets
+              key: redis-url
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: quickcommerce-secrets
+              key: jwt-secret
+        - name: ADMIN_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: quickcommerce-secrets
+              key: admin-secret-key
+        - name: CLOUDINARY_CLOUD_NAME
+          valueFrom:
+            secretKeyRef:
+              name: quickcommerce-secrets
+              key: cloudinary-cloud-name
+        - name: CLOUDINARY_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: quickcommerce-secrets
+              key: cloudinary-api-key
+        - name: CLOUDINARY_API_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: quickcommerce-secrets
+              key: cloudinary-api-secret
+        - name: FRONTEND_URL
+          valueFrom:
+            configMapKeyRef:
+              name: quickcommerce-config
+              key: frontend-url
+        - name: CORS_ALLOWED_ORIGINS
+          valueFrom:
+            configMapKeyRef:
+              name: quickcommerce-config
+              key: cors-allowed-origins
+        - name: TRUST_PROXY
+          value: "true"
+        - name: LOG_LEVEL
+          value: "info"
+        - name: ENABLE_REQUEST_LOGGING
+          value: "true"
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 7000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health/ready
+            port: 7000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        lifecycle:
+          preStop:
+            exec:
+              command: ["/bin/sh", "-c", "sleep 5"]
+
+---
+# Worker Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: quickcommerce-worker
+  labels:
+    app: quickcommerce
+    component: worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: quickcommerce
+      component: worker
+  template:
+    metadata:
+      labels:
+        app: quickcommerce
+        component: worker
+    spec:
+      containers:
+      - name: worker
+        image: quickcommerce:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 9090
+          name: health
+          protocol: TCP
+        env:
+        - name: PROCESS_ROLE
+          value: "worker"
+        - name: NODE_ENV
+          value: "production"
+        - name: HEALTH_CHECK_PORT
+          value: "9090"
+        - name: MONGO_URI
+          valueFrom:
+            secretKeyRef:
+              name: quickcommerce-secrets
+              key: mongo-uri
+        - name: REDIS_URL
+          valueFrom:
+            secretKeyRef:
+              name: quickcommerce-secrets
+              key: redis-url
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: quickcommerce-secrets
+              key: jwt-secret
+        - name: LOG_LEVEL
+          value: "info"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "250m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 9090
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health/ready
+            port: 9090
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        lifecycle:
+          preStop:
+            exec:
+              command: ["/bin/sh", "-c", "sleep 5"]
+
+---
+# Scheduler Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: quickcommerce-scheduler
+  labels:
+    app: quickcommerce
+    component: scheduler
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: quickcommerce
+      component: scheduler
+  template:
+    metadata:
+      labels:
+        app: quickcommerce
+        component: scheduler
+    spec:
+      containers:
+      - name: scheduler
+        image: quickcommerce:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 9090
+          name: health
+          protocol: TCP
+        env:
+        - name: PROCESS_ROLE
+          value: "scheduler"
+        - name: NODE_ENV
+          value: "production"
+        - name: HEALTH_CHECK_PORT
+          value: "9090"
+        - name: MONGO_URI
+          valueFrom:
+            secretKeyRef:
+              name: quickcommerce-secrets
+              key: mongo-uri
+        - name: REDIS_URL
+          valueFrom:
+            secretKeyRef:
+              name: quickcommerce-secrets
+              key: redis-url
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: quickcommerce-secrets
+              key: jwt-secret
+        - name: LOG_LEVEL
+          value: "info"
+        - name: AUTO_CANCEL_INTERVAL_MS
+          value: "10000"
+        - name: PAYOUT_BATCH_INTERVAL_MS
+          value: "900000"
+        - name: ENABLE_PAYOUT_BATCH_JOB
+          value: "true"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "250m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 9090
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health/ready
+            port: 9090
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        lifecycle:
+          preStop:
+            exec:
+              command: ["/bin/sh", "-c", "sleep 5"]

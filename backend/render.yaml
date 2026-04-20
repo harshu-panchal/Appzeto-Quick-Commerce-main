@@ -1,0 +1,112 @@
+# Render.com Multi-Service Configuration
+# Production-ready deployment with separate API, Worker, and Scheduler services
+
+services:
+  # API Service - Web Service with auto-scaling
+  - type: web
+    name: quickcommerce-api
+    env: docker
+    dockerfilePath: ./Dockerfile
+    region: oregon
+    plan: standard
+    numInstances: 2
+    healthCheckPath: /health/ready
+    envVars:
+      - key: PROCESS_ROLE
+        value: api
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 7000
+      - key: MONGO_URI
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: ADMIN_SECRET_KEY
+        sync: false
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false
+      - key: TRUST_PROXY
+        value: "true"
+      - key: LOG_LEVEL
+        value: info
+      - key: ENABLE_REQUEST_LOGGING
+        value: "true"
+      - key: ENABLE_SIGNED_UPLOADS
+        value: "true"
+    autoDeploy: true
+
+  # Worker Service - Background Worker
+  - type: worker
+    name: quickcommerce-worker
+    env: docker
+    dockerfilePath: ./Dockerfile
+    region: oregon
+    plan: starter
+    envVars:
+      - key: PROCESS_ROLE
+        value: worker
+      - key: NODE_ENV
+        value: production
+      - key: HEALTH_CHECK_PORT
+        value: 9090
+      - key: MONGO_URI
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: LOG_LEVEL
+        value: info
+    autoDeploy: true
+
+  # Scheduler Service - Background Worker
+  - type: worker
+    name: quickcommerce-scheduler
+    env: docker
+    dockerfilePath: ./Dockerfile
+    region: oregon
+    plan: starter
+    envVars:
+      - key: PROCESS_ROLE
+        value: scheduler
+      - key: NODE_ENV
+        value: production
+      - key: HEALTH_CHECK_PORT
+        value: 9090
+      - key: MONGO_URI
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: LOG_LEVEL
+        value: info
+      - key: AUTO_CANCEL_INTERVAL_MS
+        value: 10000
+      - key: PAYOUT_BATCH_INTERVAL_MS
+        value: 900000
+      - key: ENABLE_PAYOUT_BATCH_JOB
+        value: "true"
+    autoDeploy: true
+
+# Note: Add Redis as a managed service through Render dashboard
+# Redis configuration:
+#   - Type: Redis
+#   - Name: quickcommerce-redis
+#   - Plan: Starter or higher
+#   - Region: Same as services (oregon)
+#   - Maxmemory Policy: allkeys-lru
+#
+# After creating Redis, add REDIS_URL to each service's environment variables
+# using the internal connection string provided by Render.

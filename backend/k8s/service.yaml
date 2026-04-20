@@ -1,0 +1,43 @@
+---
+# API Service - LoadBalancer
+apiVersion: v1
+kind: Service
+metadata:
+  name: quickcommerce-api
+  labels:
+    app: quickcommerce
+    component: api
+spec:
+  type: LoadBalancer
+  selector:
+    app: quickcommerce
+    component: api
+  ports:
+  - port: 80
+    targetPort: 7000
+    protocol: TCP
+    name: http
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 10800
+
+---
+# API Service - ClusterIP (for internal access)
+apiVersion: v1
+kind: Service
+metadata:
+  name: quickcommerce-api-internal
+  labels:
+    app: quickcommerce
+    component: api
+spec:
+  type: ClusterIP
+  selector:
+    app: quickcommerce
+    component: api
+  ports:
+  - port: 7000
+    targetPort: 7000
+    protocol: TCP
+    name: http

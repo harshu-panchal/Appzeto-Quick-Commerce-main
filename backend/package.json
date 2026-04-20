@@ -1,0 +1,77 @@
+{
+  "name": "quick-commerce-backend",
+  "version": "1.0.0",
+  "description": "Quick Commerce Platform - Backend API",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "nodemon index.js",
+    "start": "node index.js",
+    "worker": "node worker.js",
+    "scheduler": "node scheduler.js",
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
+    "test:finance-flow": "node --experimental-vm-modules node_modules/jest/bin/jest.js --runInBand --testPathPatterns=finance-.*\\.test\\.js",
+    "test:finance-e2e": "node --experimental-vm-modules node_modules/jest/bin/jest.js --runInBand --detectOpenHandles --testPathPatterns=finance-api-e2e\\.test\\.js",
+    "test:delivery-broadcast": "node scripts/test-delivery-broadcast-flow.js"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "transform": {},
+    "openHandlesTimeout": 5000,
+    "setupFiles": [
+      "<rootDir>/__tests__/setup/quietConsole.bootstrap.js"
+    ],
+    "testMatch": [
+      "**/__tests__/**/*.test.js"
+    ]
+  },
+  "keywords": [
+    "ecommerce",
+    "quick-commerce",
+    "api",
+    "nodejs",
+    "express"
+  ],
+  "author": "",
+  "license": "ISC",
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
+  "dependencies": {
+    "@googlemaps/google-maps-services-js": "^3.4.2",
+    "@mapbox/polyline": "^1.2.1",
+    "@phonepe-pg/pg-sdk-node": "^2.0.5",
+    "axios": "^1.13.5",
+    "bcrypt": "^6.0.0",
+    "bull": "^4.16.5",
+    "cloudinary": "^2.9.0",
+    "compression": "^1.8.1",
+    "cors": "^2.8.6",
+    "crypto": "^1.0.1",
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
+    "firebase-admin": "^13.7.0",
+    "helmet": "^8.1.0",
+    "ioredis": "^5.10.1",
+    "joi": "^18.0.2",
+    "jsonwebtoken": "^9.0.3",
+    "mongodb": "^7.1.0",
+    "mongoose": "^8.12.0",
+    "multer": "^2.0.2",
+    "node-fetch": "^3.3.2",
+    "nodemailer": "^8.0.5",
+    "socket.io": "^4.8.3"
+  },
+  "devDependencies": {
+    "@babel/preset-env": "^7.29.0",
+    "@types/jest": "^30.0.0",
+    "fast-check": "^4.5.3",
+    "jest": "^30.2.0",
+    "nodemon": "^3.1.14",
+    "supertest": "^7.2.2"
+  },
+  "overrides": {
+    "minimatch": "^10.2.1"
+  }
+}
