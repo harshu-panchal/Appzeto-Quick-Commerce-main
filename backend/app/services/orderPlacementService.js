@@ -17,6 +17,7 @@ import {
   computeStockReservationWindow,
   reserveStockForItems,
 } from "./stockService.js";
+import { isLowStockAlertsEnabled } from "./lowStockAlertService.js";
 import {
   checkIdempotency,
   acquireIdempotencyLock,
@@ -344,6 +345,7 @@ export async function placeOrderAtomic({
     await checkoutGroup.save({ session });
 
     const orders = [];
+    const pendingLowStockAlerts = [];
     const sellerTimeoutMs = DEFAULT_SELLER_TIMEOUT_MS();
     const shouldStartSellerWorkflow = paymentMode === "COD";
 
@@ -356,13 +358,16 @@ export async function placeOrderAtomic({
         : null;
       const orderExpiresAt = orderReservation.expiresAt || sellerPendingUntil || null;
 
-      await reserveStockForItems({
+      const sellerLowStockAlerts = await reserveStockForItems({
         items: entry.items,
         sellerId: entry.sellerId,
         orderId,
         session,
         paymentMode,
       });
+      if (Array.isArray(sellerLowStockAlerts) && sellerLowStockAlerts.length > 0) {
+        pendingLowStockAlerts.push(...sellerLowStockAlerts);
+      }
 
       const orderGrandTotal = Number(entry.breakdown?.grandTotal || 0);
       const groupGrandTotal = Number(pricingSnapshot.aggregateBreakdown?.grandTotal || 1);
@@ -518,6 +523,12 @@ export async function placeOrderAtomic({
           customerId,
         });
       }
+    }
+
+    if (pendingLowStockAlerts.length > 0 && await isLowStockAlertsEnabled()) {
+      pendingLowStockAlerts.forEach((alertPayload) => {
+        emitNotificationEvent(NOTIFICATION_EVENTS.LOW_STOCK_ALERT, alertPayload);
+      });
     }
 
     return { ...resultPayload, duplicate: false };

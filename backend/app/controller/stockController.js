@@ -1,6 +1,12 @@
 import Product from "../models/product.js";
 import StockHistory from "../models/stockHistory.js";
 import handleResponse from "../utils/helper.js";
+import { emitNotificationEvent } from "../modules/notifications/notification.emitter.js";
+import { NOTIFICATION_EVENTS } from "../modules/notifications/notification.constants.js";
+import {
+    createLowStockAlertCandidate,
+    isLowStockAlertsEnabled,
+} from "../services/lowStockAlertService.js";
 
 /* ===============================
    ADJUST STOCK MANUALLY
@@ -16,6 +22,7 @@ export const adjustStock = async (req, res) => {
         }
 
         const qtyChange = Number(quantity);
+        const previousStock = Number(product.stock || 0);
         const finalStock = type === 'Restock' ? product.stock + qtyChange : product.stock - qtyChange;
 
         if (finalStock < 0) {
@@ -36,6 +43,21 @@ export const adjustStock = async (req, res) => {
         });
 
         await historyEntry.save();
+
+        if (
+            type !== 'Restock' &&
+            qtyChange > 0 &&
+            await isLowStockAlertsEnabled()
+        ) {
+            const lowStockAlert = createLowStockAlertCandidate({
+                product,
+                previousStock,
+                currentStock: finalStock,
+            });
+            if (lowStockAlert) {
+                emitNotificationEvent(NOTIFICATION_EVENTS.LOW_STOCK_ALERT, lowStockAlert);
+            }
+        }
 
         return handleResponse(res, 200, "Stock adjusted successfully", {
             newStock: product.stock,

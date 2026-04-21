@@ -8,7 +8,11 @@ import { useAuth } from '@core/context/AuthContext';
 import { useSettings } from '@core/context/SettingsContext';
 import { customerApi } from '../services/customerApi';
 import { toast } from 'sonner';
-import { ensureFcmTokenRegistered, startForegroundPushListener } from '@core/firebase/pushClient';
+import {
+    describePushSupport,
+    ensureFcmTokenRegistered,
+    startForegroundPushListener
+} from '@core/firebase/pushClient';
 
 const TEST_PUSH_STATUS_POLL_INTERVAL_MS = 1500;
 const TEST_PUSH_STATUS_MAX_ATTEMPTS = 20;
@@ -51,6 +55,11 @@ const ProfilePage = () => {
         if (isTestingPush) return;
         setIsTestingPush(true);
         try {
+            const support = describePushSupport();
+            if (!support.supported) {
+                throw new Error(support.message || 'Push notifications are not supported on this device/browser setup.');
+            }
+
             await ensureFcmTokenRegistered({ role, platform: 'web' });
             await startForegroundPushListener();
             const res = await customerApi.testPushNotification();
@@ -79,8 +88,9 @@ const ProfilePage = () => {
                 description: String(statusResult.failureReason || 'Notification delivery failed.'),
             });
         } catch (error) {
+            const message = error?.response?.data?.message || error?.message || 'Unknown error';
             toast.error('Failed to trigger test push', {
-                description: error?.response?.data?.message || error?.message || 'Unknown error',
+                description: message,
             });
         } finally {
             setIsTestingPush(false);

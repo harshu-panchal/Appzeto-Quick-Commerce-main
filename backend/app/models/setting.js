@@ -147,6 +147,10 @@ const settingSchema = new mongoose.Schema(
             type: Boolean,
             default: true,
         },
+        lowStockAlertsEnabled: {
+            type: Boolean,
+            default: true,
+        },
     },
     {
         timestamps: true,

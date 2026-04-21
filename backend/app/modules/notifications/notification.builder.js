@@ -56,6 +56,14 @@ function buildAdminSupportLink(ticketId) {
     : `${baseUrl}/admin/support-tickets`;
 }
 
+function buildSellerInventoryLink(productId) {
+  const baseUrl = getFrontendBaseUrl();
+  const id = String(productId || "").trim();
+  return id
+    ? `${baseUrl}/seller/inventory?productId=${encodeURIComponent(id)}`
+    : `${baseUrl}/seller/inventory`;
+}
+
 function eventDefinition(eventType) {
   switch (eventType) {
     case NOTIFICATION_EVENTS.ORDER_PLACED:
@@ -335,12 +343,42 @@ function eventDefinition(eventType) {
           },
         ],
       };
+    case NOTIFICATION_EVENTS.LOW_STOCK_ALERT:
+      return {
+        role: NOTIFICATION_ROLES.SELLER,
+        recipientIds: (payload) => normalizeIdList(payload.sellerId),
+        title: (payload) => {
+          const productName = String(payload.productName || "Product").trim() || "Product";
+          return `${productName} is running low`;
+        },
+        body: (payload) => {
+          const variantName = String(payload.variantName || "").trim();
+          const currentStock = Number(payload.currentStock || 0);
+          const itemLabel = variantName ? `${variantName}` : "this item";
+          return `Only ${currentStock} left for ${itemLabel}. Restock soon.`;
+        },
+      };
     default:
       return null;
   }
 }
 
 function eventData(eventType, payload = {}, role) {
+  if (eventType === NOTIFICATION_EVENTS.LOW_STOCK_ALERT) {
+    const productId = String(payload.productId || "").trim() || undefined;
+    return {
+      eventType,
+      productId,
+      currentStock: Number(payload.currentStock || 0),
+      threshold: Number(payload.threshold || 0),
+      variantSku: String(payload.variantSku || "").trim() || undefined,
+      variantName: String(payload.variantName || "").trim() || undefined,
+      imageUrl: String(payload.imageUrl || "").trim() || undefined,
+      link: buildSellerInventoryLink(productId),
+      ...(payload.data || {}),
+    };
+  }
+
   if (eventType === NOTIFICATION_EVENTS.SUPPORT_TICKET_MESSAGE) {
     const ticketId = String(payload.ticketId || "").trim() || undefined;
     const link =

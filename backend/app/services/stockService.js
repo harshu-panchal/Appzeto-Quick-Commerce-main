@@ -1,5 +1,6 @@
 import Product from "../models/product.js";
 import StockHistory from "../models/stockHistory.js";
+import { createLowStockAlertCandidate } from "./lowStockAlertService.js";
 
 const ONLINE_RESERVATION_MS = () =>
   parseInt(process.env.ONLINE_STOCK_RESERVATION_MS || "900000", 10);
@@ -30,6 +31,7 @@ export async function reserveStockForItems({
   paymentMode = "COD",
 }) {
   const stockType = String(paymentMode || "").toUpperCase() === "ONLINE" ? "Reservation" : "Sale";
+  const lowStockAlerts = [];
 
   for (const item of items) {
     const variantSku = String(item.variantSku || "").trim();
@@ -88,7 +90,38 @@ export async function reserveStockForItems({
       ],
       { session },
     );
+
+    const previousStock = Number(updated.stock || 0) + Number(item.quantity || 0);
+    let previousVariantStock = null;
+    let currentVariantStock = null;
+
+    if (variantSku) {
+      const matchedVariant = Array.isArray(updated.variants)
+        ? updated.variants.find(
+          (variant) => String(variant?.sku || "").trim() === variantSku,
+        )
+        : null;
+      if (matchedVariant) {
+        currentVariantStock = Number(matchedVariant.stock || 0);
+        previousVariantStock = currentVariantStock + Number(item.quantity || 0);
+      }
+    }
+
+    const alertCandidate = createLowStockAlertCandidate({
+      product: updated,
+      previousStock,
+      currentStock: Number(updated.stock || 0),
+      variantSku,
+      previousVariantStock,
+      currentVariantStock,
+    });
+
+    if (alertCandidate) {
+      lowStockAlerts.push(alertCandidate);
+    }
   }
+
+  return lowStockAlerts;
 }
 
 export async function releaseReservedStockForOrder(order, { session = null, reason = "Reservation released" } = {}) {

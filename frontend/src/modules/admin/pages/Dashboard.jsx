@@ -32,6 +32,7 @@ import { toast } from 'sonner';
 const AdminDashboard = () => {
     const [statsData, setStatsData] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [lastUpdatedAt, setLastUpdatedAt] = useState(null);
 
     useEffect(() => {
         const fetchStats = async () => {
@@ -39,6 +40,7 @@ const AdminDashboard = () => {
                 const res = await adminApi.getStats();
                 if (res.data.success) {
                     setStatsData(res.data.result);
+                    setLastUpdatedAt(new Date());
                 }
             } catch (error) {
                 console.error("Dashboard Stats Error:", error);
@@ -60,6 +62,25 @@ const AdminDashboard = () => {
     }
 
     const overview = statsData?.overview || {};
+    const formatLastUpdated = (value) => {
+        if (!value) return 'Last Update: --';
+        const now = new Date();
+        const updated = new Date(value);
+        const nowDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const updatedDate = new Date(updated.getFullYear(), updated.getMonth(), updated.getDate());
+        const dayDiff = Math.round((nowDate - updatedDate) / (1000 * 60 * 60 * 24));
+
+        let dayLabel = updated.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+        if (dayDiff === 0) dayLabel = 'Today';
+        if (dayDiff === 1) dayLabel = 'Yesterday';
+
+        const timeLabel = updated.toLocaleTimeString('en-IN', {
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true,
+        });
+        return `Last Update: ${dayLabel}, ${timeLabel}`;
+    };
 
     const stats = [
         {
@@ -113,7 +134,7 @@ const AdminDashboard = () => {
                 actions={
                     <>
                         <Badge variant="outline" className="ds-badge ds-badge-gray">
-                            Last Update: Today, 12:45 PM
+                            {formatLastUpdated(lastUpdatedAt)}
                         </Badge>
                     </>
                 }

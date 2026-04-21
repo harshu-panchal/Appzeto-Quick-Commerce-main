@@ -6,6 +6,8 @@ let foregroundListenerStarted = false;
 let foregroundUnsubscribe = null;
 const REGISTERED_KEY_PREFIX = "push:registered:";
 const TOKEN_KEY_PREFIX = "push:fcm-token:";
+const GESTURE_EVENTS = ["pointerdown", "touchstart", "click", "keydown"];
+const gestureHandlers = new Map();
 
 function registeredKey(role = "customer") {
   return `${REGISTERED_KEY_PREFIX}${String(role || "customer").toLowerCase()}`;
@@ -32,6 +34,31 @@ function persistStoredFcmToken(role = "customer", token = "") {
   if (!token) return;
   localStorage.setItem(tokenKey(role), token);
   sessionStorage.setItem(registeredKey(role), "1");
+}
+
+export function describePushSupport() {
+  if (typeof window === "undefined" || typeof navigator === "undefined") {
+    return { supported: false, reason: "no-window" };
+  }
+
+  if (!window.isSecureContext) {
+    return { supported: false, reason: "insecure-context" };
+  }
+
+  const ua = String(navigator.userAgent || "");
+  const isIOS = /iPad|iPhone|iPod/i.test(ua);
+  const isSafari = /Safari/i.test(ua) && !/CriOS|FxiOS|EdgiOS|OPiOS/i.test(ua);
+  const isStandalone = window.matchMedia?.("(display-mode: standalone)")?.matches || navigator.standalone === true;
+
+  if (isIOS && isSafari && !isStandalone) {
+    return {
+      supported: false,
+      reason: "ios-safari-not-standalone",
+      message: "On iPhone/iPad Safari, push notifications work only after installing the app to Home Screen.",
+    };
+  }
+
+  return { supported: true, reason: "ok" };
 }
 
 async function ensureServiceWorkerRegistration() {
@@ -99,6 +126,11 @@ export async function ensureFcmTokenRegistered({
   platform = "web",
   device = "",
 } = {}) {
+  const support = describePushSupport();
+  if (!support.supported) {
+    throw new Error(support.message || `Push unsupported: ${support.reason}`);
+  }
+
   const supported = await isSupported().catch(() => false);
   if (!supported) {
     throw new Error("Firebase Messaging is not supported in this environment");
@@ -134,6 +166,50 @@ export async function ensureFcmTokenRegistered({
 
   persistStoredFcmToken(role, token);
   return token;
+}
+
+export function scheduleFcmRegistrationOnUserGesture({
+  role = "customer",
+  platform = "web",
+  device = "",
+  onSuccess,
+  onError,
+} = {}) {
+  if (typeof window === "undefined") return () => {};
+  const key = String(role || "customer").toLowerCase();
+
+  // Avoid duplicate listener stacks for the same role.
+  const existingCleanup = gestureHandlers.get(key);
+  if (existingCleanup) {
+    return existingCleanup;
+  }
+
+  let removed = false;
+  const remove = () => {
+    if (removed) return;
+    removed = true;
+    for (const eventName of GESTURE_EVENTS) {
+      window.removeEventListener(eventName, handler, true);
+    }
+    gestureHandlers.delete(key);
+  };
+
+  const handler = async () => {
+    remove();
+    try {
+      const token = await ensureFcmTokenRegistered({ role: key, platform, device });
+      if (typeof onSuccess === "function") onSuccess(token);
+    } catch (error) {
+      if (typeof onError === "function") onError(error);
+    }
+  };
+
+  for (const eventName of GESTURE_EVENTS) {
+    window.addEventListener(eventName, handler, { capture: true, once: true, passive: true });
+  }
+
+  gestureHandlers.set(key, remove);
+  return remove;
 }
 
 export async function removeStoredFcmToken({
@@ -193,10 +269,12 @@ export async function startForegroundPushListener() {
 }
 
 export default {
+  describePushSupport,
   clearStoredFcmToken,
   ensureFcmTokenRegistered,
   getStoredFcmToken,
   hasRegisteredFcmToken,
   removeStoredFcmToken,
+  scheduleFcmRegistrationOnUserGesture,
   startForegroundPushListener,
 };

@@ -64,6 +64,7 @@ export const AuthProvider = ({ children }) => {
     useEffect(() => {
         if (!token) return;
         let cancelled = false;
+        let cleanupDeferredRegistration = null;
 
         // Fire-and-forget; never block auth/profile load.
         setTimeout(() => {
@@ -71,24 +72,41 @@ export const AuthProvider = ({ children }) => {
                 .then(async ({
                     ensureFcmTokenRegistered,
                     hasRegisteredFcmToken,
-                    startForegroundPushListener
+                    startForegroundPushListener,
+                    scheduleFcmRegistrationOnUserGesture
                 }) => {
                     if (cancelled) return;
                     await startForegroundPushListener();
                     if (hasRegisteredFcmToken(currentRole)) return;
-                    await ensureFcmTokenRegistered({
+
+                    const permission = typeof Notification !== 'undefined' ? Notification.permission : 'default';
+                    if (permission === 'granted') {
+                        await ensureFcmTokenRegistered({
+                            role: currentRole,
+                            platform: 'web'
+                        });
+                        return;
+                    }
+
+                    cleanupDeferredRegistration = scheduleFcmRegistrationOnUserGesture({
                         role: currentRole,
-                        platform: 'web'
+                        platform: 'web',
+                        onError: (error) => {
+                            console.warn('[push] Deferred registration failed:', error?.message || error);
+                        },
                     });
                 })
-                .catch(() => {
-                    // Permission denied / unsupported / any error: ignore silently.
-                    // User can still retry from a later push-enabled action.
+                .catch((error) => {
+                    // Permission denied / unsupported / any error: user can retry later from push-enabled actions.
+                    console.warn('[push] Auto-registration skipped:', error?.message || error);
                 });
         }, 0);
 
         return () => {
             cancelled = true;
+            if (typeof cleanupDeferredRegistration === 'function') {
+                cleanupDeferredRegistration();
+            }
         };
     }, [token, currentRole]);
 
