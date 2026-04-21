@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/card";
 import { cn } from '@/lib/utils';
 
-const Card = ({ children, title, subtitle, className, headerAction, footer, ...props }) => {
+const Card = ({ children, title, subtitle, className, headerAction, footer, contentClassName, ...props }) => {
     return (
         <ShadcnCard className={cn("glass-card border-none rounded-lg", className)} {...props}>
             {(title || subtitle || headerAction) && (
@@ -21,7 +21,7 @@ const Card = ({ children, title, subtitle, className, headerAction, footer, ...p
                     {headerAction && <div>{headerAction}</div>}
                 </CardHeader>
             )}
-            <CardContent className={cn("p-5", !title && !subtitle && !headerAction && "pt-5")}>
+            <CardContent className={cn("p-5", !title && !subtitle && !headerAction && "pt-5", contentClassName)}>
                 {children}
             </CardContent>
             {footer && (

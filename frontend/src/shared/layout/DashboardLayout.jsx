@@ -269,7 +269,7 @@ const DashboardLayout = ({ children, navItems, title }) => {
                 isOpen={isSidebarOpen}
                 onClose={() => setIsSidebarOpen(false)}
             />
-            <div className={cn("transition-all duration-300", (role === "admin" || role === "seller") ? "pl-0 md:pl-56" : "pl-56")}>
+            <div className={cn("transition-all duration-300", (role === "admin" || role === "seller") ? "pl-0 md:pl-72" : "pl-72")}>
                 <Topbar onMenuClick={() => setIsSidebarOpen(true)} />
                 <main className={cn("p-4 md:p-6 min-h-screen", (role === "admin" || role === "seller") ? "pt-20 md:pt-6 pb-24 md:pb-6" : "pt-20")}>
                     <div className="w-full pb-12">

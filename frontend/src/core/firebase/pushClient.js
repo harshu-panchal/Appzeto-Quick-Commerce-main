@@ -52,6 +52,7 @@ async function showSystemNotification({ title, body, data } = {}) {
   const safeBody = String(body || "");
   const link = data?.link || "/";
   const tag = data?.orderId || data?.eventType || "quick-commerce";
+  const image = String(data?.image || data?.imageUrl || "").trim();
 
   // Prefer SW notifications so they land in the OS notification center consistently.
   try {
@@ -62,10 +63,12 @@ async function showSystemNotification({ title, body, data } = {}) {
         tag,
         requireInteraction: true,
         renotify: true,
+        ...(image ? { image } : {}),
         data: {
           link,
           orderId: data?.orderId || "",
           eventType: data?.eventType || "",
+          image,
         },
       });
       return;
@@ -80,10 +83,12 @@ async function showSystemNotification({ title, body, data } = {}) {
       tag,
       requireInteraction: true,
       renotify: true,
+      ...(image ? { image } : {}),
       data: {
         link,
         orderId: data?.orderId || "",
         eventType: data?.eventType || "",
+        image,
       },
     });
   }

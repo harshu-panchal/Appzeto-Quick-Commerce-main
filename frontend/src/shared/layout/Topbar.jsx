@@ -99,8 +99,8 @@ const Topbar = ({ onMenuClick }) => {
         <header className={cn(
             "bg-white/70 backdrop-blur-xl border-b border-gray-100/50 flex items-center justify-between shadow-[0_4px_30px_rgba(0,0,0,0.02)] transition-all duration-300",
             (role === 'admin' || role === 'seller')
-                ? "fixed top-0 left-0 right-0 z-50 h-14 px-4 md:static md:h-16 md:px-6"
-                : "fixed top-0 left-56 right-0 h-16 px-6 z-40"
+                ? "fixed top-0 left-0 right-0 z-[200] h-14 px-4 md:sticky md:top-0 md:h-16 md:px-6"
+                : "fixed top-0 left-72 right-0 h-16 px-6 z-40"
         )}>
             <div className="flex items-center flex-1 mr-4 overflow-hidden">
                 <button
@@ -178,7 +178,7 @@ const Topbar = ({ onMenuClick }) => {
                     }}
                     className="flex items-center space-x-2.5 p-1 pr-3 hover:bg-gray-50 rounded-xl transition-all duration-300 group ring-1 ring-transparent hover:ring-gray-100 shadow-sm hover:shadow-md"
                 >
-                    <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-primary to-brand-600 flex items-center justify-center text-white font-bold text-xs shadow-lg shadow-primary/20 group-hover:scale-105 transition-transform">
+                    <div className="h-8 w-8 rounded-lg bg-primary flex items-center justify-center text-white font-bold text-xs shadow-md group-hover:scale-105 transition-transform">
                         {user?.name?.[0] || 'A'}
                     </div>
                     <div>

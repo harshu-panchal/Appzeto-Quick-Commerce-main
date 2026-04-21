@@ -13,6 +13,14 @@ const LenisScroll = () => {
             mouseMultiplier: 1,
             smoothTouch: false,
             touchMultiplier: 2,
+            // Allow native scrolling inside nested scroll containers.
+            // Add `data-lenis-prevent` to any element that should keep its own scroll.
+            prevent: (node) => {
+                if (!node || typeof node.closest !== 'function') return false;
+                return Boolean(
+                    node.closest('[data-lenis-prevent], [data-lenis-prevent-wheel], [data-lenis-prevent-touch]')
+                );
+            },
         });
 
         let rafId;

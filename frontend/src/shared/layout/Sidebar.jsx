@@ -42,6 +42,8 @@ const SidebarItem = ({
   onMouseLeave,
 }) => {
   const location = useLocation();
+  const badgeCount = Number(item?.badgeCount || 0);
+  const badgeLabel = badgeCount > 99 ? "99+" : String(badgeCount);
 
   const hasChildren = item.children && item.children.length > 0;
   const isChildActive =
@@ -56,9 +58,9 @@ const SidebarItem = ({
           onMouseEnter={onMouseEnter}
           onMouseLeave={onMouseLeave}
           className={cn(
-            "w-full flex items-center justify-between rounded-lg px-3 py-2.5 transition-all duration-300 group relative overflow-hidden",
+            "w-full flex items-center justify-between rounded-lg px-3 pr-12 py-2.5 transition-all duration-300 group relative overflow-hidden",
             isChildActive || isOpen
-              ? "bg-white/10 text-white shadow-[0_0_20px_rgba(255,255,255,0.05)] ring-1 ring-white/10"
+              ? "bg-white/10 text-white ring-1 ring-white/10"
               : "text-gray-400 hover:text-white",
           )}>
           <AnimatePresence>
@@ -83,7 +85,7 @@ const SidebarItem = ({
               className={cn(
                 "p-1.5 rounded-lg transition-all duration-500 shadow-lg",
                 isChildActive || isOpen
-                  ? "bg-primary text-primary-foreground shadow-primary/40 ring-2 ring-primary/20"
+                  ? "bg-primary text-primary-foreground ring-2 ring-primary/20"
                   : "bg-white/5 text-gray-500 group-hover:bg-white/10 group-hover:text-gray-300",
               )}>
               {item.icon && <item.icon className="h-4 w-4" />}
@@ -96,6 +98,11 @@ const SidebarItem = ({
               {item.label}
             </span>
           </div>
+          {badgeCount > 0 && !isOpen && (
+            <span className="pointer-events-none absolute top-2 right-3 min-w-5 h-5 px-1.5 rounded-full bg-rose-500 text-white text-[10px] font-black flex items-center justify-center shadow-lg shadow-rose-500/30 ring-2 ring-[#0a0c10]">
+              {badgeLabel}
+            </span>
+          )}
           <div
             className={cn(
               "transition-all duration-300 z-10",
@@ -108,7 +115,11 @@ const SidebarItem = ({
         </button>
         {isOpen && (
           <div className="pl-9 pr-3 py-1 space-y-1 animate-in slide-in-from-top-2 fade-in duration-500">
-            {item.children.map((child) => (
+            {item.children.map((child) => {
+              const showChildBadge =
+                badgeCount > 0 && String(child?.path || "") === "/admin/support-tickets";
+
+              return (
               <NavLink
                 key={child.path}
                 to={child.path}
@@ -119,6 +130,7 @@ const SidebarItem = ({
                     isActive
                       ? "text-white font-bold bg-white/10 shadow-sm ring-1 ring-white/5"
                       : "text-gray-500 hover:text-gray-300 hover:bg-white/5",
+                    showChildBadge && "pr-9",
                   )
                 }>
                 {({ isActive }) => (
@@ -127,10 +139,16 @@ const SidebarItem = ({
                       <div className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-3 rounded-full bg-primary shadow-[0_0_10px_rgba(var(--primary),0.5)]" />
                     )}
                     {child.label}
+                    {showChildBadge && (
+                      <span className="pointer-events-none absolute top-1 right-2 min-w-5 h-5 px-1.5 rounded-full bg-rose-500 text-white text-[10px] font-black flex items-center justify-center shadow-lg shadow-rose-500/30 ring-2 ring-[#0a0c10]">
+                        {badgeLabel}
+                      </span>
+                    )}
                   </>
                 )}
               </NavLink>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -147,7 +165,7 @@ const SidebarItem = ({
         cn(
           "flex items-center space-x-2.5 rounded-lg px-3 py-2.5 transition-all duration-300 group relative overflow-hidden",
           isActive
-            ? "bg-primary text-primary-foreground shadow-[0_10px_30px_rgba(var(--primary),0.3)]"
+            ? "bg-primary text-primary-foreground"
             : "text-gray-400 hover:text-white",
         )
       }>
@@ -186,6 +204,11 @@ const SidebarItem = ({
             )}>
             {item.label}
           </span>
+          {badgeCount > 0 && (
+            <span className="pointer-events-none absolute top-2 right-3 min-w-5 h-5 px-1.5 rounded-full bg-rose-500 text-white text-[10px] font-black flex items-center justify-center shadow-lg shadow-rose-500/30 ring-2 ring-[#0a0c10] z-10">
+              {badgeLabel}
+            </span>
+          )}
           {isActive && (
             <div className="absolute right-0 top-0 bottom-0 w-1 bg-white/30 rounded-l-full animate-in slide-in-from-right-1" />
           )}
@@ -204,11 +227,11 @@ const SidebarContent = ({ items, title, onClose, openMenu, handleToggle, hovered
       <div className="flex-shrink-0 flex h-16 items-center justify-between px-5 border-b border-white/5 bg-gradient-to-b from-white/[0.02] to-transparent z-10">
         <div className="flex items-center space-x-2.5">
           {settings?.logoUrl ? (
-            <div className="h-9 w-9 rounded-xl overflow-hidden shadow-lg shadow-primary/20 ring-1 ring-white/10 group-hover:scale-110 transition-all duration-500 ease-out">
+            <div className="h-9 w-9 rounded-xl overflow-hidden shadow-sm ring-1 ring-white/10 group-hover:scale-110 transition-all duration-500 ease-out">
               <img src={settings.logoUrl} alt={appName} className="h-full w-full object-contain" />
             </div>
           ) : (
-            <div className="h-9 w-9 rounded-xl bg-primary flex items-center justify-center text-white shadow-lg shadow-primary/30 transform -rotate-6 hover:rotate-0 transition-all duration-500 ease-out">
+            <div className="h-9 w-9 rounded-xl bg-primary flex items-center justify-center text-white shadow-sm transform -rotate-6 hover:rotate-0 transition-all duration-500 ease-out">
               <span className="text-lg font-black italic">{appName.charAt(0)}</span>
             </div>
           )}
@@ -311,7 +334,7 @@ const Sidebar = ({ items, title, isOpen, onClose }) => {
     <>
       {/* Desktop Sidebar */}
       <aside className={cn(
-        "fixed left-0 inset-y-0 w-56 bg-[#0a0c10] text-gray-400 border-r border-white/5 shadow-[20px_0_60px_rgba(0,0,0,0.4)] md:flex flex-col z-50 transition-all duration-300",
+        "fixed left-0 inset-y-0 w-72 bg-[#0a0c10] text-gray-400 border-r border-white/5 shadow-[20px_0_60px_rgba(0,0,0,0.4)] md:flex flex-col z-50 transition-all duration-300",
         (role === "admin" || role === "seller") ? "hidden md:flex" : "flex",
       )}>
         <SidebarContent {...commonProps} />
@@ -331,7 +354,7 @@ const Sidebar = ({ items, title, isOpen, onClose }) => {
             />
 
             {/* Outer Container (Fixed Shell - NO TRANSFORM) */}
-            <div className="absolute left-0 inset-y-0 w-56 flex flex-col pointer-events-none">
+            <div className="absolute left-0 inset-y-0 w-72 flex flex-col pointer-events-none">
               {/* Inner Animation Wrapper (TRANSFORM APPLIED HERE) */}
               <motion.div
                 initial={{ x: "-100%" }}

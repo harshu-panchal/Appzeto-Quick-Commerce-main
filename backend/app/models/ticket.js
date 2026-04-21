@@ -48,7 +48,26 @@ const ticketSchema = new mongoose.Schema(
                 },
                 text: {
                     type: String,
-                    required: true,
+                    default: "",
+                    required: function requiredText() {
+                        return !this.mediaUrl;
+                    },
+                },
+                mediaUrl: {
+                    type: String,
+                    default: "",
+                    trim: true,
+                },
+                mediaType: {
+                    type: String,
+                    enum: ["", "image"],
+                    default: "",
+                    trim: true,
+                },
+                mimeType: {
+                    type: String,
+                    default: "",
+                    trim: true,
                 },
                 createdAt: {
                     type: Date,

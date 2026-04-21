@@ -10,6 +10,7 @@ import { Server } from "socket.io";
 import setupRoutes from "./app/routes/index.js";
 import { initSocket, getIO } from "./app/socket/socketManager.js";
 import { registerOrderSocketGetter } from "./app/services/orderSocketEmitter.js";
+import { registerTicketSocketGetter } from "./app/services/ticketSocketEmitter.js";
 import {
   globalApiRateLimiter,
 } from "./app/middleware/securityMiddlewares.js";
@@ -199,6 +200,7 @@ async function startHttpServer() {
   
   initSocket(io);
   registerOrderSocketGetter(getIO);
+  registerTicketSocketGetter(getIO);
   
   // Register for graceful shutdown
   registerHttpServer(server);

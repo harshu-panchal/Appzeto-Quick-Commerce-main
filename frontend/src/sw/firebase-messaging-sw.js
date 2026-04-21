@@ -50,6 +50,7 @@ if (!firebaseConfig.apiKey || !firebaseConfig.projectId || firebaseConfig.apiKey
     const body = notification.body || data.body || "";
     const link = data.link || "/";
     const tag = notification.tag || data.orderId || data.eventType || "quick-commerce";
+    const image = String(notification.image || data.image || data.imageUrl || "").trim();
 
     return {
       title,
@@ -58,10 +59,12 @@ if (!firebaseConfig.apiKey || !firebaseConfig.projectId || firebaseConfig.apiKey
         tag,
         requireInteraction: true,
         renotify: true,
+        ...(image ? { image } : {}),
         data: {
           link,
           orderId: data.orderId || "",
           eventType: data.eventType || "",
+          image,
         },
       },
     };

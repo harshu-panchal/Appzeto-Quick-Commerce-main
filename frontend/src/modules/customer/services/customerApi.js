@@ -103,6 +103,21 @@ export const customerApi = {
   submitReview: (data) => axiosInstance.post("/reviews/submit", data),
   createTicket: (data) => axiosInstance.post("/tickets/create", data),
   getMyTickets: () => getWithDedupe("/tickets/my-tickets"),
+  replyTicket: (ticketId, text, options = {}) => {
+    const {
+      mediaUrl = "",
+      mediaType = "",
+      mimeType = "",
+    } = options || {};
+
+    return axiosInstance.post(`/tickets/reply/${encodeURIComponent(String(ticketId))}`, {
+      text,
+      isAdmin: false,
+      mediaUrl,
+      mediaType,
+      mimeType,
+    });
+  },
 
   // Experience sections (home / header pages)
   getExperienceSections: (params) => getWithDedupe("/experience", params),

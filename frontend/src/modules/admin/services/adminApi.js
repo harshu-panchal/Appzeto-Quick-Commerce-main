@@ -60,7 +60,12 @@ export const adminApi = {
     // Support Tickets
     getTickets: (params) => axiosInstance.get('/tickets/admin/all', { params }),
     updateTicketStatus: (id, status) => axiosInstance.patch(`/tickets/admin/status/${id}`, { status }),
-    replyTicket: (id, text) => axiosInstance.post(`/tickets/reply/${id}`, { text, isAdmin: true }),
+    replyTicket: (id, text, options = {}) => {
+        const { mediaUrl = "", mediaType = "", mimeType = "" } = options || {};
+        return axiosInstance.post(`/tickets/reply/${id}`, { text, isAdmin: true, mediaUrl, mediaType, mimeType });
+    },
+    broadcastNotification: (data) => axiosInstance.post('/notifications/broadcast', data),
+    getBroadcastAudienceStats: () => axiosInstance.get('/notifications/broadcast/audience-stats'),
 
     // Reviews
     getPendingReviews: (params) => axiosInstance.get('/reviews/admin/pending', { params }),

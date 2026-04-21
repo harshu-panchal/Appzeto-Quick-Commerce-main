@@ -11,15 +11,28 @@ import Admin from "../../models/admin.js";
 import {
   normalizeNotificationRole,
   ROLE_TO_USER_MODEL,
+  ROLE_TO_RECIPIENT_MODEL,
+  NOTIFICATION_ROLES,
   roleFromRecipientModel,
 } from "./notification.constants.js";
 import { notify } from "./notification.service.js";
-import { emitNotificationEvent } from "./notification.emitter.js";
 import { NOTIFICATION_EVENTS } from "./notification.constants.js";
+import { deliverNotificationById } from "./notification.worker.js";
 
 function resolveRole(req) {
   return normalizeNotificationRole(req?.user?.role);
 }
+
+const BROADCAST_AUDIENCES = Object.freeze({
+  all: [
+    NOTIFICATION_ROLES.CUSTOMER,
+    NOTIFICATION_ROLES.SELLER,
+    NOTIFICATION_ROLES.DELIVERY,
+  ],
+  customers: [NOTIFICATION_ROLES.CUSTOMER],
+  sellers: [NOTIFICATION_ROLES.SELLER],
+  delivery: [NOTIFICATION_ROLES.DELIVERY],
+});
 
 function resolveNotificationFilter(req) {
   const userId = req?.user?.id;
@@ -409,6 +422,156 @@ export const getTestPushNotificationStatus = async (req, res) => {
   }
 };
 
+export const broadcastNotification = async (req, res) => {
+  try {
+    const role = resolveRole(req);
+    const adminId = String(req?.user?.id || "").trim();
+    if (!adminId || role !== NOTIFICATION_ROLES.ADMIN) {
+      return handleResponse(res, 403, "Only admin can broadcast notifications");
+    }
+
+    const audience = String(req.body?.audience || "").trim().toLowerCase();
+    const title = String(req.body?.title || "").trim();
+    const message = String(req.body?.message || "").trim();
+    const deepLink = String(req.body?.deepLink || "").trim();
+    const imageUrl = String(req.body?.imageUrl || "").trim();
+    const targetRoles = BROADCAST_AUDIENCES[audience];
+
+    if (!targetRoles) {
+      return handleResponse(
+        res,
+        400,
+        "audience must be one of all, customers, sellers, delivery",
+      );
+    }
+    if (!title) {
+      return handleResponse(res, 400, "title is required");
+    }
+    if (!message) {
+      return handleResponse(res, 400, "message is required");
+    }
+    if (title.length > 50) {
+      return handleResponse(res, 400, "title must be 50 characters or less");
+    }
+    if (message.length > 200) {
+      return handleResponse(res, 400, "message must be 200 characters or less");
+    }
+
+    const tokenOwners = await PushToken.find({
+      role: { $in: targetRoles },
+      isActive: true,
+    })
+      .select("userId role")
+      .lean();
+
+    const uniqueRecipients = new Map();
+    for (const item of tokenOwners) {
+      const userId = String(item?.userId || "").trim();
+      const recipientRole = String(item?.role || "").trim();
+      if (!userId || !recipientRole) continue;
+      const key = `${recipientRole}:${userId}`;
+      if (!uniqueRecipients.has(key)) {
+        uniqueRecipients.set(key, {
+          userId,
+          role: recipientRole,
+        });
+      }
+    }
+
+    const recipients = Array.from(uniqueRecipients.values());
+    if (!recipients.length) {
+      return handleResponse(res, 200, "No active push recipients found for selected audience", {
+        audience,
+        roles: targetRoles,
+        targetedUsers: 0,
+        notificationsCreated: 0,
+        delivered: 0,
+        failed: 0,
+      });
+    }
+
+    const broadcastId = `BROADCAST-${Date.now()}-${adminId.slice(-6)}`;
+    const docs = recipients.map((recipient) => {
+      const recipientModel = ROLE_TO_RECIPIENT_MODEL[recipient.role] || "User";
+      const timestamp = Date.now();
+      const dedupeKey = `${broadcastId}:${recipient.role}:${recipient.userId}:${timestamp}`;
+      return {
+        userId: recipient.userId,
+        role: recipient.role,
+        recipient: recipient.userId,
+        recipientModel,
+        type: "system",
+        title,
+        body: message,
+        message,
+        isRead: false,
+        status: "pending",
+        channel: "push",
+        provider: "fcm",
+        dedupeKey,
+        data: {
+          audience,
+          deepLink,
+          imageUrl,
+          broadcastId,
+          source: "admin_broadcast",
+          sentBy: adminId,
+        },
+      };
+    });
+
+    const created = await Notification.insertMany(docs, { ordered: false });
+    const notificationIds = created.map((item) => item?._id).filter(Boolean);
+    const deliveryResults = await Promise.allSettled(
+      notificationIds.map((notificationId) => deliverNotificationById(notificationId)),
+    );
+
+    const delivered = deliveryResults.filter((result) => result.status === "fulfilled").length;
+    const failed = deliveryResults.length - delivered;
+
+    return handleResponse(res, 200, "Broadcast notification sent", {
+      broadcastId,
+      audience,
+      roles: targetRoles,
+      targetedUsers: recipients.length,
+      notificationsCreated: notificationIds.length,
+      delivered,
+      failed,
+    });
+  } catch (error) {
+    return handleResponse(res, 500, error.message);
+  }
+};
+
+export const getBroadcastAudienceStats = async (req, res) => {
+  try {
+    const role = resolveRole(req);
+    const adminId = String(req?.user?.id || "").trim();
+    if (!adminId || role !== NOTIFICATION_ROLES.ADMIN) {
+      return handleResponse(res, 403, "Only admin can access audience stats");
+    }
+
+    const [customers, sellers, delivery] = await Promise.all([
+      User.countDocuments({
+        role: { $in: ["user", "customer"] },
+      }),
+      Seller.countDocuments({}),
+      Delivery.countDocuments({}),
+    ]);
+
+    const result = {
+      all: Number(customers || 0) + Number(sellers || 0) + Number(delivery || 0),
+      customers: Number(customers || 0),
+      sellers: Number(sellers || 0),
+      delivery: Number(delivery || 0),
+    };
+
+    return handleResponse(res, 200, "Audience stats fetched", result);
+  } catch (error) {
+    return handleResponse(res, 500, error.message);
+  }
+};
+
 export default {
   registerPushToken,
   removePushToken,
@@ -418,4 +581,6 @@ export default {
   updateNotificationPreferences,
   testPushNotification,
   getTestPushNotificationStatus,
+  broadcastNotification,
+  getBroadcastAudienceStats,
 };

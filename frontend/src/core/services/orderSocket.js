@@ -51,6 +51,9 @@ export function getOrderSocket(getToken) {
       if (Array.isArray(s._orderRooms)) {
         s._orderRooms.forEach((roomId) => s.emit("join_order", roomId));
       }
+      if (Array.isArray(s._ticketRooms)) {
+        s._ticketRooms.forEach((roomId) => s.emit("join_ticket", roomId));
+      }
     });
 
     s.on("disconnect", (reason) => {
@@ -113,11 +116,46 @@ export function leaveOrderRoom(orderId, getToken) {
   s.emit("leave_order", orderId);
 }
 
+export function joinTicketRoom(ticketId, getToken) {
+  const s = getOrderSocket(getToken);
+  if (!s || !ticketId) return;
+  const id = String(ticketId).trim();
+  if (!id) return;
+  if (!Array.isArray(s._ticketRooms)) s._ticketRooms = [];
+  if (!s._ticketRooms.includes(id)) s._ticketRooms.push(id);
+  s.emit("join_ticket", id);
+}
+
+export function leaveTicketRoom(ticketId, getToken) {
+  const s = getOrderSocket(getToken);
+  if (!s || !ticketId) return;
+  const id = String(ticketId).trim();
+  if (!id) return;
+  if (Array.isArray(s._ticketRooms)) {
+    s._ticketRooms = s._ticketRooms.filter((rid) => rid !== id);
+  }
+  s.emit("leave_ticket", id);
+}
+
 export function onOrderStatusUpdate(getToken, handler) {
   const s = getOrderSocket(getToken);
   if (!s || typeof handler !== "function") return () => {};
   s.on("order:status:update", handler);
   return () => s.off("order:status:update", handler);
+}
+
+export function onTicketMessage(getToken, handler) {
+  const s = getOrderSocket(getToken);
+  if (!s || typeof handler !== "function") return () => {};
+  s.on("ticket:message", handler);
+  return () => s.off("ticket:message", handler);
+}
+
+export function onTicketCreated(getToken, handler) {
+  const s = getOrderSocket(getToken);
+  if (!s || typeof handler !== "function") return () => {};
+  s.on("ticket:created", handler);
+  return () => s.off("ticket:created", handler);
 }
 
 export function onDeliveryBroadcast(getToken, handler) {

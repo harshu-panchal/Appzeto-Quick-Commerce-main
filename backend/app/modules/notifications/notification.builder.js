@@ -20,6 +20,13 @@ function normalizeIdList(value) {
   return single ? [single] : [];
 }
 
+function truncateText(text, maxLen = 140) {
+  const value = String(text || "").trim();
+  if (!value) return "";
+  if (value.length <= maxLen) return value;
+  return `${value.slice(0, Math.max(0, maxLen - 3))}...`;
+}
+
 function getFrontendBaseUrl() {
   const explicit =
     process.env.FRONTEND_URL ||
@@ -33,6 +40,20 @@ function buildOrderLink(orderId) {
   const baseUrl = getFrontendBaseUrl();
   if (!id) return `${baseUrl}/orders`;
   return `${baseUrl}/orders/${encodeURIComponent(id)}`;
+}
+
+function buildCustomerSupportLink(ticketId) {
+  const baseUrl = getFrontendBaseUrl();
+  const id = String(ticketId || "").trim();
+  return id ? `${baseUrl}/chat?ticketId=${encodeURIComponent(id)}` : `${baseUrl}/chat`;
+}
+
+function buildAdminSupportLink(ticketId) {
+  const baseUrl = getFrontendBaseUrl();
+  const id = String(ticketId || "").trim();
+  return id
+    ? `${baseUrl}/admin/support-tickets?ticketId=${encodeURIComponent(id)}`
+    : `${baseUrl}/admin/support-tickets`;
 }
 
 function eventDefinition(eventType) {
@@ -285,12 +306,56 @@ function eventDefinition(eventType) {
             payload.data?.note ? " Note: " + payload.data.note : ""
           }`,
       };
+    case NOTIFICATION_EVENTS.SUPPORT_TICKET_MESSAGE:
+      return {
+        multi: true,
+        definitions: [
+          {
+            role: NOTIFICATION_ROLES.ADMIN,
+            recipientIds: (payload) => {
+              const fromRole = String(payload.fromRole || "").toLowerCase();
+              if (fromRole === "admin") return [];
+              return normalizeIdList(payload.adminIds);
+            },
+            title: (payload) => {
+              const name = String(payload.userName || "Customer").trim() || "Customer";
+              return `Support message from ${name}`;
+            },
+            body: (payload) => truncateText(payload.messageText || "New message"),
+          },
+          {
+            role: NOTIFICATION_ROLES.CUSTOMER,
+            recipientIds: (payload) => {
+              const fromRole = String(payload.fromRole || "").toLowerCase();
+              if (fromRole !== "admin") return [];
+              return normalizeIdList(payload.userId || payload.customerId);
+            },
+            title: () => "Support reply",
+            body: (payload) => truncateText(payload.messageText || "New message"),
+          },
+        ],
+      };
     default:
       return null;
   }
 }
 
-function eventData(eventType, payload = {}) {
+function eventData(eventType, payload = {}, role) {
+  if (eventType === NOTIFICATION_EVENTS.SUPPORT_TICKET_MESSAGE) {
+    const ticketId = String(payload.ticketId || "").trim() || undefined;
+    const link =
+      role === NOTIFICATION_ROLES.ADMIN
+        ? buildAdminSupportLink(ticketId)
+        : buildCustomerSupportLink(ticketId);
+
+    return {
+      eventType,
+      ticketId,
+      link,
+      ...(payload.data || {}),
+    };
+  }
+
   const orderId = String(payload.orderId || "").trim() || undefined;
   const checkoutGroupId = String(payload.checkoutGroupId || "").trim() || undefined;
   return {
@@ -308,7 +373,6 @@ export function buildNotification(eventType, payload = {}) {
 
   const definitions = result.multi ? result.definitions : [result];
   const notifications = [];
-  const data = eventData(eventType, payload);
 
   for (const def of definitions) {
     const recipientIds = def.recipientIds(payload);
@@ -317,6 +381,7 @@ export function buildNotification(eventType, payload = {}) {
     const role = def.role;
     const title = def.title(payload);
     const body = def.body(payload);
+    const data = eventData(eventType, payload, role);
 
     recipientIds.forEach((recipientId) => {
       notifications.push({

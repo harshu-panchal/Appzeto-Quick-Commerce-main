@@ -19,6 +19,9 @@ let listenerRegistered = false;
 
 function dedupeKeyForNotification(eventType, notification, payload = {}) {
   const orderRef =
+    payload.messageId ||
+    payload.messageCreatedAt ||
+    payload.ticketId ||
     payload.orderId ||
     notification?.data?.orderId ||
     payload.checkoutGroupId ||

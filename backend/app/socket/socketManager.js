@@ -2,6 +2,8 @@
  * Socket.IO — order rooms, role rooms, JWT auth.
  */
 import { verifySocketToken } from "./socketAuth.js";
+import mongoose from "mongoose";
+import Ticket from "../models/ticket.js";
 
 let _io = null;
 
@@ -47,6 +49,7 @@ export const initSocket = (io) => {
     }
     if (role === "admin") {
       socket.join("admin:orders");
+      socket.join("admin:support");
     }
 
     socket.on("join_order", (orderId) => {
@@ -57,6 +60,30 @@ export const initSocket = (io) => {
     socket.on("leave_order", (orderId) => {
       if (!orderId) return;
       socket.leave(`order:${orderId}`);
+    });
+
+    socket.on("join_ticket", async (ticketId) => {
+      const raw = typeof ticketId === "string" ? ticketId.trim() : "";
+      if (!raw || !mongoose.Types.ObjectId.isValid(raw)) return;
+
+      if (socket.user?.role === "admin") {
+        socket.join(`ticket:${raw}`);
+        return;
+      }
+
+      try {
+        const ticket = await Ticket.findById(raw).select("userId").lean();
+        if (!ticket?.userId) return;
+        if (ticket.userId.toString() !== userId.toString()) return;
+        socket.join(`ticket:${raw}`);
+      } catch {
+        /* ignore */
+      }
+    });
+
+    socket.on("leave_ticket", (ticketId) => {
+      if (!ticketId) return;
+      socket.leave(`ticket:${String(ticketId).trim()}`);
     });
 
     socket.on("register_delivery", (deliveryId) => {

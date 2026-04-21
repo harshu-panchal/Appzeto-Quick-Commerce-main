@@ -30,8 +30,9 @@ function getOptimizedImageFormat() {
 }
 
 function getOptimizedImageQuality() {
-  return String(process.env.CLOUDINARY_IMAGE_UPLOAD_QUALITY || "auto:good")
-    .trim();
+  const raw = String(process.env.CLOUDINARY_IMAGE_UPLOAD_QUALITY || "auto:good").trim();
+  // Allow legacy values like "q_auto:good" while Cloudinary expects quality "auto:good".
+  return raw.startsWith("q_") ? raw.slice(2) : raw;
 }
 
 function isImageMimeType(mimeType = "") {
@@ -40,7 +41,9 @@ function isImageMimeType(mimeType = "") {
 
 function buildImageUploadTransformation() {
   const quality = getOptimizedImageQuality();
-  return quality ? `q_${quality}` : "";
+  if (!quality) return null;
+  // Use object form to avoid Cloudinary treating string values as a named transformation.
+  return [{ quality }];
 }
 
 function getImageUploadOptions() {

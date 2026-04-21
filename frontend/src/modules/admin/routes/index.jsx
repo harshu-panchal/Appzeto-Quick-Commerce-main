@@ -1,6 +1,7 @@
 import React from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import DashboardLayout from "@shared/layout/DashboardLayout";
+import { useSupportUnread } from "@core/context/SupportUnreadContext";
 import {
   LayoutDashboard,
   Tag,
@@ -209,8 +210,19 @@ const navItems = [
 const BillingCharges = React.lazy(() => import("../pages/BillingCharges"));
 
 const AdminRoutes = () => {
+  const { totalUnread } = useSupportUnread();
+
+  const navItemsWithBadges = React.useMemo(() => {
+    const count = Number.isFinite(totalUnread) ? totalUnread : 0;
+    if (count <= 0) return navItems;
+    return navItems.map((item) => {
+      if (item?.label !== "Customer Support") return item;
+      return { ...item, badgeCount: count };
+    });
+  }, [totalUnread]);
+
   return (
-    <DashboardLayout navItems={navItems} title="Admin Center">
+    <DashboardLayout navItems={navItemsWithBadges} title="Admin Center">
       <Routes>
         <Route path="/" element={<Dashboard />} />
         <Route path="/users" element={<UserManagement />} />

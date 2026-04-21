@@ -43,6 +43,17 @@ function isWebLink(value = "") {
   return /^https?:\/\//i.test(link);
 }
 
+function resolveImageUrl(payload = {}, data = {}) {
+  const fromData = String(
+    data.imageUrl ||
+      data.image ||
+      payload?.imageUrl ||
+      payload?.image ||
+      "",
+  ).trim();
+  return isWebLink(fromData) ? fromData : "";
+}
+
 export async function sendFCM(tokens = [], payload = {}) {
   if (!Array.isArray(tokens) || tokens.length === 0) {
     return {
@@ -59,6 +70,7 @@ export async function sendFCM(tokens = [], payload = {}) {
   const title = payload.title || "";
   const body = payload.body || payload.message || "";
   const tag = data.orderId || data.eventType || "quick-commerce";
+  const image = resolveImageUrl(payload, data);
   const chunks = chunkArray(tokens, MAX_FCM_MULTICAST_TOKENS);
 
   const merged = {
@@ -73,6 +85,7 @@ export async function sendFCM(tokens = [], payload = {}) {
       notification: {
         title,
         body,
+        ...(image ? { image } : {}),
       },
       data,
       webpush: {
@@ -85,6 +98,7 @@ export async function sendFCM(tokens = [], payload = {}) {
           body,
           tag,
           requireInteraction: true,
+          ...(image ? { image } : {}),
           data: { link: resolvedLink || link },
         },
         fcmOptions: resolvedLink ? { link: resolvedLink } : undefined,

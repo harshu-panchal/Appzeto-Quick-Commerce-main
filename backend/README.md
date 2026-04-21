@@ -50,6 +50,11 @@ PROCESS_ROLE=scheduler node index.js
 | `POST /api/media/upload-url` | Get signed Cloudinary upload URL |
 | `POST /api/media/confirm` | Confirm upload and persist metadata |
 | `DELETE /api/media/:publicId` | Soft-delete media |
+| `POST /api/tickets/create` | Create support ticket (chat) |
+| `GET /api/tickets/my-tickets` | List my support tickets |
+| `POST /api/tickets/reply/:id` | Reply to a support ticket |
+
+Socket.IO events (auth required): `ticket:created`, `ticket:message`.
 
 ## Deployment
 

@@ -2,6 +2,7 @@ import { Suspense } from 'react';
 import AppRouter from '@core/routes/AppRouter';
 import { AuthProvider } from '@core/context/AuthContext';
 import { SettingsProvider } from '@core/context/SettingsContext';
+import { SupportUnreadProvider } from '@core/context/SupportUnreadContext';
 import SeoHead from '@core/components/SeoHead';
 import { ToastProvider } from './shared/components/ui/Toast';
 import Loader from './shared/components/ui/Loader';
@@ -16,8 +17,10 @@ function App() {
                     <SeoHead />
                     <ToastProvider>
                         <Suspense fallback={<Loader fullScreen />}>
-                            <LenisScroll />
-                            <AppRouter />
+                            <SupportUnreadProvider>
+                                <LenisScroll />
+                                <AppRouter />
+                            </SupportUnreadProvider>
                         </Suspense>
                     </ToastProvider>
                 </SettingsProvider>

@@ -1,5 +1,5 @@
 import express from "express";
-import { verifyToken } from "../../middleware/authMiddleware.js";
+import { allowRoles, verifyToken } from "../../middleware/authMiddleware.js";
 import {
   registerPushToken,
   removePushToken,
@@ -9,6 +9,8 @@ import {
   updateNotificationPreferences,
   testPushNotification,
   getTestPushNotificationStatus,
+  broadcastNotification,
+  getBroadcastAudienceStats,
 } from "./notification.controller.js";
 
 const notificationRouter = express.Router();
@@ -17,6 +19,8 @@ notificationRouter.use(verifyToken);
 // Required APIs
 notificationRouter.get("/", getNotifications);
 notificationRouter.patch("/read", markNotificationsRead);
+notificationRouter.post("/broadcast", allowRoles("admin"), broadcastNotification);
+notificationRouter.get("/broadcast/audience-stats", allowRoles("admin"), getBroadcastAudienceStats);
 
 // Backward compatibility
 notificationRouter.put("/mark-all-read", markNotificationsRead);

@@ -1,12 +1,25 @@
 import Ticket from "../models/ticket.js";
+import Admin from "../models/admin.js";
 import handleResponse from "../utils/helper.js";
 import getPagination from "../utils/pagination.js";
+import { emitTicketCreated, emitTicketMessage } from "../services/ticketSocketEmitter.js";
+import { emitNotificationEvent } from "../modules/notifications/notification.emitter.js";
+import { NOTIFICATION_EVENTS } from "../modules/notifications/notification.constants.js";
+
+async function getAdminIds() {
+    const admins = await Admin.find().select("_id").lean();
+    return (admins || []).map((a) => a?._id).filter(Boolean);
+}
 
 // Create a new ticket (Customer/Seller/Rider)
 export const createTicket = async (req, res) => {
     try {
-        const { subject, description, priority, userType } = req.body;
+        const { subject, description, priority, userType, mediaUrl, mediaType, mimeType } = req.body;
         const userId = req.user.id; // From verifyToken middleware
+
+        const safeMediaUrl = String(mediaUrl || "").trim();
+        const safeMediaType = String(mediaType || "").trim();
+        const safeMimeType = String(mimeType || "").trim();
 
         const newTicket = new Ticket({
             userId,
@@ -20,12 +33,37 @@ export const createTicket = async (req, res) => {
                     senderId: userId,
                     senderType: "User",
                     text: description,
+                    mediaUrl: safeMediaUrl,
+                    mediaType: safeMediaUrl ? (safeMediaType || "image") : "",
+                    mimeType: safeMediaUrl ? safeMimeType : "",
                     isAdmin: false,
                 },
             ],
         });
 
         await newTicket.save();
+        emitTicketCreated(newTicket);
+
+        try {
+            const savedMessage = newTicket.messages?.[newTicket.messages.length - 1];
+            const adminIds = await getAdminIds();
+            emitNotificationEvent(NOTIFICATION_EVENTS.SUPPORT_TICKET_MESSAGE, {
+                fromRole: "customer",
+                ticketId: newTicket._id,
+                messageId: savedMessage?._id,
+                messageCreatedAt: savedMessage?.createdAt,
+                userId,
+                userName: req.user.name || "User",
+                adminIds,
+                messageText: description || (safeMediaUrl ? "Sent an image" : ""),
+                data: {
+                    subject,
+                },
+            });
+        } catch {
+            // Push notifications are best-effort; never block ticket creation.
+        }
+
         return handleResponse(res, 201, "Ticket created successfully", newTicket);
     } catch (error) {
         return handleResponse(res, 500, error.message);
@@ -67,17 +105,29 @@ export const getAllTickets = async (req, res) => {
 // Admin/User: Reply to a ticket
 export const replyToTicket = async (req, res) => {
     try {
-        const { text, isAdmin } = req.body;
+        const { text, isAdmin, mediaUrl, mediaType, mimeType } = req.body;
         const { id } = req.params;
 
         const ticket = await Ticket.findById(id);
         if (!ticket) return handleResponse(res, 404, "Ticket not found");
 
+        const safeText = String(text || "").trim();
+        const safeMediaUrl = String(mediaUrl || "").trim();
+        const safeMediaType = String(mediaType || "").trim();
+        const safeMimeType = String(mimeType || "").trim();
+
+        if (!safeText && !safeMediaUrl) {
+            return handleResponse(res, 400, "Message text or mediaUrl is required");
+        }
+
         const newMessage = {
             sender: isAdmin ? "Admin" : (req.user.name || "User"),
             senderId: req.user.id,
             senderType: isAdmin ? "Admin" : "User",
-            text,
+            text: safeText,
+            mediaUrl: safeMediaUrl,
+            mediaType: safeMediaUrl ? (safeMediaType || "image") : "",
+            mimeType: safeMediaUrl ? safeMimeType : "",
             isAdmin: !!isAdmin,
         };
 
@@ -87,6 +137,38 @@ export const replyToTicket = async (req, res) => {
         }
 
         await ticket.save();
+
+        const savedMessage = ticket.messages[ticket.messages.length - 1];
+        emitTicketMessage({
+            ticketId: ticket._id,
+            userId: ticket.userId,
+            message: typeof savedMessage?.toObject === "function" ? savedMessage.toObject() : savedMessage,
+        });
+
+        try {
+            const fromRole = isAdmin ? "admin" : "customer";
+            const payload = {
+                fromRole,
+                ticketId: ticket._id,
+                messageId: savedMessage?._id,
+                messageCreatedAt: savedMessage?.createdAt,
+                userId: ticket.userId,
+                userName: req.user.name || "User",
+                messageText: safeText || (safeMediaUrl ? "Sent an image" : ""),
+                data: {
+                    subject: ticket.subject,
+                },
+            };
+
+            if (!isAdmin) {
+                payload.adminIds = await getAdminIds();
+            }
+
+            emitNotificationEvent(NOTIFICATION_EVENTS.SUPPORT_TICKET_MESSAGE, payload);
+        } catch {
+            // Best-effort; chat must work even if push is misconfigured.
+        }
+
         return handleResponse(res, 200, "Reply sent successfully", ticket);
     } catch (error) {
         return handleResponse(res, 500, error.message);
