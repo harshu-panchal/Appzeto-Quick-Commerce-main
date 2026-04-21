@@ -65,8 +65,26 @@ async function ensureServiceWorkerRegistration() {
   if (!("serviceWorker" in navigator)) {
     throw new Error("Service workers are not supported in this browser");
   }
+  const swUrl = "/firebase-messaging-sw.js";
+
+  // Detect broken SPA hosting rewrites where SW URL serves index.html.
+  try {
+    const swResponse = await fetch(swUrl, { cache: "no-store" });
+    if (!swResponse.ok) {
+      throw new Error(`Service worker script not reachable (${swResponse.status})`);
+    }
+    const contentType = String(swResponse.headers.get("content-type") || "").toLowerCase();
+    if (contentType.includes("text/html")) {
+      throw new Error(
+        "Service worker URL returned HTML. Check production rewrites and exclude /firebase-messaging-sw.js from SPA fallback.",
+      );
+    }
+  } catch (error) {
+    throw new Error(error?.message || "Unable to validate service worker script");
+  }
+
   // Must be at site root for FCM web push.
-  const registration = await navigator.serviceWorker.register("/firebase-messaging-sw.js", {
+  const registration = await navigator.serviceWorker.register(swUrl, {
     updateViaCache: "none",
   });
   await registration.update();

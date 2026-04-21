@@ -1,4 +1,5 @@
 {
+    "version": 2,
     "headers": [
         {
             "source": "/(.*)",
@@ -10,10 +11,17 @@
             ]
         }
     ],
-    "rewrites": [
+    "routes": [
         {
-            "source": "/(.*)",
-            "destination": "/index.html"
+            "src": "/firebase-messaging-sw\\.js",
+            "dest": "/firebase-messaging-sw.js"
+        },
+        {
+            "handle": "filesystem"
+        },
+        {
+            "src": "/(.*)",
+            "dest": "/index.html"
         }
     ]
 }
