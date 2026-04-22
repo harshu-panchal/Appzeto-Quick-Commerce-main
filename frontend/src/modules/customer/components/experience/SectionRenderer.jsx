@@ -289,7 +289,7 @@ const SectionRenderer = ({ sections = [], productsById = {}, categoriesById = {}
               id={`section-${section._id}`}
               className="-mx-4 md:-mx-8 lg:-mx-[50px] px-1 sm:px-2 md:px-3 mt-6 mb-2"
             >
-                <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center justify-between mb-3 px-3 md:px-5">
                   {heading && (
                     <h3 className="text-base font-black text-[#1A1A1A]">
                       {heading}
@@ -344,7 +344,7 @@ const SectionRenderer = ({ sections = [], productsById = {}, categoriesById = {}
               id={`section-${section._id}`}
               className="-mx-4 md:-mx-8 lg:-mx-[50px] px-1 sm:px-2 md:px-3 mt-6"
             >
-              <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center justify-between mb-3 px-3 md:px-5">
                 {heading && (
                   <h3 className="text-base font-black text-[#1A1A1A]">
                     {heading}
