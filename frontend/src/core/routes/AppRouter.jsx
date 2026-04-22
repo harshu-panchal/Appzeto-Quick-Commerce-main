@@ -44,6 +44,7 @@ const CheckoutPage = lazy(() => import('../../modules/customer/pages/CheckoutPag
 const PaymentStatusPage = lazy(() => import('../../modules/customer/pages/PaymentStatusPage'));
 const SearchPage = lazy(() => import('../../modules/customer/pages/SearchPage'));
 const WalletPage = lazy(() => import('../../modules/customer/pages/WalletPage'));
+const CustomerCloneModule = lazy(() => import('../../modules/customer-clone/routes/index'));
 
 // Lazy load heavy modules
 const SellerModule = lazy(() => import('../../modules/seller/routes/index'));
@@ -135,6 +136,10 @@ const AppRouter = () => {
                 {
                     path: 'unauthorized',
                     element: <div className="flex h-screen items-center justify-center font-outfit">Unauthorized Access</div>,
+                },
+                {
+                    path: 'customer-ui-clone/*',
+                    element: <CustomerCloneModule />,
                 },
                 {
                     element: <CustomerLayoutWrapper />,

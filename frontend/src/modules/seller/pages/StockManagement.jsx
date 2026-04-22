@@ -47,32 +47,48 @@ const StockManagement = () => {
     const fetchInventory = async (silent = false, stockStatus) => {
         if (!silent) setIsLoading(true);
         try {
-            const params = {};
-            if (stockStatus === 'in') params.stockStatus = 'in';
-            if (stockStatus === 'out') params.stockStatus = 'out';
+            const requestLimit = 100;
+            const maxPages = 50;
+            let requestedPage = 1;
+            let totalPages = 1;
+            const collected = [];
 
-            const res = await sellerApi.getProducts(params);
-            if (res.data.success) {
+            while (requestedPage <= totalPages && requestedPage <= maxPages) {
+                const params = { page: requestedPage, limit: requestLimit };
+                if (stockStatus === 'in') params.stockStatus = 'in';
+                if (stockStatus === 'out') params.stockStatus = 'out';
+
+                const res = await sellerApi.getProducts(params);
+                if (!res.data.success) break;
+
                 // Backend returns handleResponse(..., { items, page, limit, total, totalPages })
                 const payload = res.data.result || {};
                 const rawProducts = Array.isArray(payload.items)
                     ? payload.items
                     : (res.data.results || []);
 
-                const safeProducts = Array.isArray(rawProducts) ? rawProducts : [];
+                collected.push(...rawProducts);
+                totalPages = Number(payload.totalPages || 1);
 
-                setInventory(
-                    safeProducts.map(p => ({
-                        ...p,
-                        id: p._id,
-                        threshold: p.lowStockAlert || 5,
-                        status:
-                            p.stock === 0
-                                ? 'Out of Stock'
-                                : (p.stock <= (p.lowStockAlert || 5) ? 'Low Stock' : 'In Stock')
-                    }))
-                );
+                if (!rawProducts.length || requestedPage >= totalPages) {
+                    break;
+                }
+                requestedPage += 1;
             }
+
+            const safeProducts = Array.isArray(collected) ? collected : [];
+
+            setInventory(
+                safeProducts.map(p => ({
+                    ...p,
+                    id: p._id,
+                    threshold: p.lowStockAlert || 5,
+                    status:
+                        p.stock === 0
+                            ? 'Out of Stock'
+                            : (p.stock <= (p.lowStockAlert || 5) ? 'Low Stock' : 'In Stock')
+                }))
+            );
         } catch (error) {
             toast.error("Failed to load inventory");
         } finally {

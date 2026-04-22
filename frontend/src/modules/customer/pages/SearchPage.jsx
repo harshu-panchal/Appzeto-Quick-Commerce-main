@@ -346,13 +346,13 @@ const SearchPage = () => {
                                     See All <ChevronRight size={14} strokeWidth={3} />
                                 </button>
                             </div>
-                            <div className="flex gap-3 md:gap-4 overflow-x-auto no-scrollbar -mx-5 px-5 pb-4 snap-x">
+                            <div className="flex gap-2 md:gap-4 overflow-x-auto no-scrollbar -mx-5 px-5 pb-3 snap-x">
                                 {isLoading && allProducts.length === 0 ? (
                                     [...Array(4)].map((_, i) => (
-                                        <div key={i} className="min-w-[130px] md:min-w-[170px] h-52 md:h-64 bg-slate-50 rounded-2xl animate-pulse" />
+                                        <div key={i} className="min-w-[104px] sm:min-w-[112px] md:min-w-[124px] h-52 md:h-64 bg-slate-50 rounded-2xl animate-pulse" />
                                     ))
                                 ) : lowestPriceProducts.map((product) => (
-                                    <div key={product.id} className="min-w-[130px] md:min-w-[180px] snap-start">
+                                    <div key={product.id} className="min-w-[104px] sm:min-w-[112px] md:min-w-[124px] snap-start">
                                         <ProductCard product={product} compact={isMobile} />
                                     </div>
                                 ))}

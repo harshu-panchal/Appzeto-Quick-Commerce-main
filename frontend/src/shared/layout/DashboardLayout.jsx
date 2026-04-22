@@ -13,6 +13,7 @@ import { cn } from '@/lib/utils';
 import SellerOrdersContext from '@/modules/seller/context/SellerOrdersContext';
 import SellerEarningsContext, { defaultEarnings } from '@/modules/seller/context/SellerEarningsContext';
 import { getOrderSocket, onSellerOrderNew, onReturnDropOtp } from '@/core/services/orderSocket';
+import orderAlertSound from '@/assets/sounds/order_alert.mp3';
 
 const POLL_INTERVAL_MS = 15000;
 
@@ -25,13 +26,21 @@ function secondsLeftUntilSellerExpiry(order) {
     return Math.max(0, Math.ceil(ms / 1000));
 }
 
+function isSellerAlertEligible(order) {
+    if (!order?.orderId) return false;
+    const ws = String(order.workflowStatus || '').toUpperCase();
+    const status = String(order.status || '').toLowerCase();
+    const hasExpiry = Boolean(order.sellerPendingExpiresAt ?? order.expiresAt);
+
+    if (hasExpiry && secondsLeftUntilSellerExpiry(order) <= 0) return false;
+    if (ws) return ws === 'SELLER_PENDING';
+
+    // Backward compatibility: older payloads may not include workflowStatus.
+    return status === 'pending';
+}
+
 const isEarningsRoute = (path) =>
     path.includes('earnings') || path.includes('withdrawals') || path.includes('transactions');
-
-function playAlertSound() {
-    const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
-    audio.play().catch(() => { });
-}
 
 const DashboardLayout = ({ children, navItems, title }) => {
     const [newOrderAlert, setNewOrderAlert] = useState(null);
@@ -59,7 +68,73 @@ const DashboardLayout = ({ children, navItems, title }) => {
     const newOrderAlertRef = useRef(null);
     const newReturnAlertRef = useRef(null);
     const fetchOrdersRef = useRef(null);
+    const isOrdersFetchInFlightRef = useRef(false);
     const earningsFetchedRef = useRef(false);
+    const orderRingtoneRef = useRef(null);
+    const ringtoneRetryTimerRef = useRef(null);
+    const ringtoneUnlockHandlerRef = useRef(null);
+
+    const getOrderRingtone = () => {
+        if (!orderRingtoneRef.current) {
+            const audio = new Audio(orderAlertSound);
+            audio.loop = true;
+            audio.preload = 'auto';
+            orderRingtoneRef.current = audio;
+        }
+        return orderRingtoneRef.current;
+    };
+
+    const startOrderRingtone = () => {
+        const audio = getOrderRingtone();
+        audio.loop = true;
+        audio.preload = 'auto';
+        audio.muted = false;
+        audio.volume = 1;
+        audio.play().catch(() => { });
+
+        if (!ringtoneRetryTimerRef.current) {
+            ringtoneRetryTimerRef.current = setInterval(() => {
+                if (!newOrderAlertRef.current) return;
+                const currentAudio = getOrderRingtone();
+                if (!currentAudio.paused) return;
+                currentAudio.play().catch(() => { });
+            }, 1200);
+        }
+
+        if (!ringtoneUnlockHandlerRef.current && typeof window !== 'undefined' && typeof document !== 'undefined') {
+            const unlockPlayback = () => {
+                if (!newOrderAlertRef.current) return;
+                const currentAudio = getOrderRingtone();
+                if (!currentAudio.paused) return;
+                currentAudio.play().catch(() => { });
+            };
+            ringtoneUnlockHandlerRef.current = unlockPlayback;
+            window.addEventListener('focus', unlockPlayback);
+            document.addEventListener('visibilitychange', unlockPlayback);
+            document.addEventListener('pointerdown', unlockPlayback);
+            document.addEventListener('touchstart', unlockPlayback);
+            document.addEventListener('keydown', unlockPlayback);
+        }
+    };
+
+    const stopOrderRingtone = () => {
+        const audio = orderRingtoneRef.current;
+        if (ringtoneRetryTimerRef.current) {
+            clearInterval(ringtoneRetryTimerRef.current);
+            ringtoneRetryTimerRef.current = null;
+        }
+        if (ringtoneUnlockHandlerRef.current && typeof window !== 'undefined' && typeof document !== 'undefined') {
+            window.removeEventListener('focus', ringtoneUnlockHandlerRef.current);
+            document.removeEventListener('visibilitychange', ringtoneUnlockHandlerRef.current);
+            document.removeEventListener('pointerdown', ringtoneUnlockHandlerRef.current);
+            document.removeEventListener('touchstart', ringtoneUnlockHandlerRef.current);
+            document.removeEventListener('keydown', ringtoneUnlockHandlerRef.current);
+            ringtoneUnlockHandlerRef.current = null;
+        }
+        if (!audio) return;
+        audio.pause();
+        audio.currentTime = 0;
+    };
 
     useEffect(() => {
         shownOrderIdsRef.current = shownOrderIds;
@@ -83,6 +158,8 @@ const DashboardLayout = ({ children, navItems, title }) => {
         setOrdersLoading(true);
 
         const fetchOrders = async () => {
+            if (isOrdersFetchInFlightRef.current) return;
+            isOrdersFetchInFlightRef.current = true;
             try {
                 const res = await sellerApi.getOrders();
                 if (!res?.data?.success) return;
@@ -94,11 +171,7 @@ const DashboardLayout = ({ children, navItems, title }) => {
                 const allOrders = Array.isArray(rawOrders) ? rawOrders : [];
                 setSellerOrders(allOrders);
 
-                const pendingOrders = allOrders.filter((o) => {
-                    const ws = (o.workflowStatus || '').toUpperCase();
-                    if (ws === 'SELLER_PENDING') return true;
-                    return (o?.status || '').toLowerCase() === 'pending';
-                });
+                const pendingOrders = allOrders.filter(isSellerAlertEligible);
 
                 if (isFirstLoadRef.current) {
                     const existingIds = new Set(pendingOrders.map((o) => o.orderId).filter(Boolean));
@@ -115,25 +188,70 @@ const DashboardLayout = ({ children, navItems, title }) => {
                 setShownOrderIds((prev) => new Set(prev).add(newOrder.orderId));
                 shownOrderIdsRef.current = new Set(shownOrderIdsRef.current).add(newOrder.orderId);
                 newOrderAlertRef.current = newOrder;
-
-                playAlertSound();
             } catch (error) {
                 console.error("Polling Error:", error);
             } finally {
+                isOrdersFetchInFlightRef.current = false;
                 setOrdersLoading(false);
             }
         };
 
         fetchOrdersRef.current = fetchOrders;
         fetchOrders();
-        // Removed aggressive polling: Sockets handle real-time updates now.
+    }, [role]);
+
+    // Resilient fallback when socket events are missed (tab backgrounded/suspended).
+    useEffect(() => {
+        if (role !== 'seller') return undefined;
+
+        const syncOrders = () => {
+            if (fetchOrdersRef.current) fetchOrdersRef.current();
+        };
+
+        const timer = setInterval(syncOrders, POLL_INTERVAL_MS);
+        const onFocus = () => syncOrders();
+        const onVisible = () => {
+            if (document.visibilityState === 'visible') syncOrders();
+        };
+        const onOnline = () => syncOrders();
+
+        window.addEventListener('focus', onFocus);
+        document.addEventListener('visibilitychange', onVisible);
+        window.addEventListener('online', onOnline);
+
+        return () => {
+            clearInterval(timer);
+            window.removeEventListener('focus', onFocus);
+            document.removeEventListener('visibilitychange', onVisible);
+            window.removeEventListener('online', onOnline);
+        };
+    }, [role]);
+
+    useEffect(() => {
+        if (newOrderAlert) {
+            startOrderRingtone();
+            return undefined;
+        }
+        stopOrderRingtone();
+        return undefined;
+    }, [newOrderAlert]);
+
+    useEffect(() => {
+        return () => {
+            stopOrderRingtone();
+        };
+    }, []);
+
+    useEffect(() => {
+        if (role === 'seller') return;
+        stopOrderRingtone();
     }, [role]);
 
     useEffect(() => {
         if (role !== 'seller') return undefined;
         const getToken = () => localStorage.getItem('auth_seller');
         getOrderSocket(getToken);
-        onSellerOrderNew(getToken, () => {
+        const unsubscribeSellerNew = onSellerOrderNew(getToken, () => {
             if (fetchOrdersRef.current) fetchOrdersRef.current();
         });
 
@@ -145,6 +263,7 @@ const DashboardLayout = ({ children, navItems, title }) => {
         });
 
         return () => {
+            unsubscribeSellerNew();
             unsubscribeDrop();
         };
     }, [role]);
@@ -235,11 +354,21 @@ const DashboardLayout = ({ children, navItems, title }) => {
         try {
             await sellerApi.updateOrderStatus(orderId, { status: 'confirmed' });
             toast.success(`Order #${orderId} Accepted!`);
+            stopOrderRingtone();
             setNewOrderAlert(null);
         } catch (error) {
             const msg =
                 error?.response?.data?.message ||
                 "Failed to accept order";
+            const normalizedMsg = String(msg).toLowerCase();
+            if (
+                normalizedMsg.includes('not available') ||
+                normalizedMsg.includes('expired')
+            ) {
+                stopOrderRingtone();
+                setNewOrderAlert(null);
+                if (fetchOrdersRef.current) fetchOrdersRef.current();
+            }
             toast.error(msg);
         }
     };
@@ -248,6 +377,7 @@ const DashboardLayout = ({ children, navItems, title }) => {
         try {
             await sellerApi.updateOrderStatus(orderId, { status: 'cancelled' });
             toast.error(`Order #${orderId} Declined`);
+            stopOrderRingtone();
             setNewOrderAlert(null);
         } catch (error) {
             const msg =

@@ -323,7 +323,8 @@ export const getSellerProducts = async (req, res) => {
       maxLimit: 100,
     });
 
-    const query = { sellerId };
+    const baseSellerQuery = { sellerId };
+    const query = { ...baseSellerQuery };
     if (stockStatus === "in") {
       query.stock = { $gt: 0 };
     } else if (stockStatus === "out") {
@@ -342,10 +343,10 @@ export const getSellerProducts = async (req, res) => {
     };
     const sortQuery = sortMap[String(sort || "newest").toLowerCase()] || sortMap.newest;
 
-    const [products, total] = await Promise.all([
+    const [products, total, totalAll, activeCount, lowStockCount, outOfStockCount] = await Promise.all([
       Product.find(query)
         .select(
-          "name slug description sku price salePrice stock brand weight mainImage galleryImages headerId categoryId subcategoryId sellerId status isFeatured variants createdAt",
+          "name slug description sku price salePrice stock lowStockAlert brand weight mainImage galleryImages headerId categoryId subcategoryId sellerId status isFeatured variants createdAt",
         )
         .populate("headerId", "name")
         .populate("categoryId", "name")
@@ -356,6 +357,58 @@ export const getSellerProducts = async (req, res) => {
         .limit(limit)
         .lean(),
       Product.countDocuments(query),
+      Product.countDocuments(baseSellerQuery),
+      Product.countDocuments({ ...baseSellerQuery, status: "active" }),
+      Product.countDocuments({
+        ...baseSellerQuery,
+        $expr: {
+          $and: [
+            {
+              $gt: [
+                {
+                  $convert: {
+                    input: "$stock",
+                    to: "double",
+                    onError: 0,
+                    onNull: 0,
+                  },
+                },
+                0,
+              ],
+            },
+            {
+              $lte: [
+                {
+                  $convert: {
+                    input: "$stock",
+                    to: "double",
+                    onError: 0,
+                    onNull: 0,
+                  },
+                },
+                {
+                  $let: {
+                    vars: {
+                      rawThreshold: {
+                        $convert: {
+                          input: "$lowStockAlert",
+                          to: "double",
+                          onError: 0,
+                          onNull: 0,
+                        },
+                      },
+                    },
+                    in: {
+                      $cond: [{ $gt: ["$$rawThreshold", 0] }, "$$rawThreshold", 5],
+                    },
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      }),
+      Product.countDocuments({ ...baseSellerQuery, stock: 0 }),
     ]);
 
     return handleResponse(res, 200, "Seller products fetched", {
@@ -364,6 +417,12 @@ export const getSellerProducts = async (req, res) => {
       limit,
       total,
       totalPages: Math.ceil(total / limit) || 1,
+      summary: {
+        total: totalAll,
+        active: activeCount,
+        lowStock: lowStockCount,
+        outOfStock: outOfStockCount,
+      },
     });
   } catch (error) {
     return handleResponse(res, 500, error.message);

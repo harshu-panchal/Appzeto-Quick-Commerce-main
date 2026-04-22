@@ -249,7 +249,7 @@ const ShopByStorePage = () => {
           </div>
         </div>
 
-        <div className="flex overflow-x-auto gap-4 pb-2 no-scrollbar scroll-smooth snap-x snap-mandatory">
+	        <div className="flex overflow-x-auto gap-4 pb-2 no-scrollbar scroll-smooth snap-x snap-mandatory">
           {isLoading && (
             <div className="w-full py-8 text-center text-slate-400 text-sm font-bold">
               Loading products...
@@ -261,13 +261,13 @@ const ShopByStorePage = () => {
             </div>
           )}
           {!isLoading &&
-            activeProducts.map((product) => (
-              <div
-                key={product.id}
-                className="w-[180px] md:w-[200px] flex-shrink-0 snap-start"
-              >
-                <ProductCard
-                  product={product}
+	            activeProducts.map((product) => (
+	              <div
+	                key={product.id}
+	                className="w-[104px] sm:w-[112px] md:w-[148px] flex-shrink-0 snap-start"
+	              >
+	                <ProductCard
+	                  product={product}
                   className="bg-white border border-slate-100 shadow-sm hover:shadow-md"
                   compact
                 />

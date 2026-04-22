@@ -41,6 +41,7 @@ const ProductManagement = () => {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [total, setTotal] = useState(0);
+  const [summaryStats, setSummaryStats] = useState(null);
 
   const fetchProducts = async (requestedPage = 1) => {
     setIsLoading(true);
@@ -58,6 +59,16 @@ const ProductManagement = () => {
           setTotal(payload.total);
         } else {
           setTotal(safe.length);
+        }
+        if (payload.summary && typeof payload.summary === "object") {
+          setSummaryStats({
+            total: Number(payload.summary.total) || 0,
+            active: Number(payload.summary.active) || 0,
+            lowStock: Number(payload.summary.lowStock) || 0,
+            outOfStock: Number(payload.summary.outOfStock) || 0,
+          });
+        } else {
+          setSummaryStats(null);
         }
         if (typeof payload.page === "number") {
           setPage(payload.page);
@@ -125,6 +136,11 @@ const ProductManagement = () => {
     product.sku ||
     (Array.isArray(product.variants) && product.variants.length > 0 && product.variants[0]?.sku) ||
     makeSku(product.name, 1);
+
+  const resolveLowStockThreshold = (product) => {
+    const parsed = Number(product?.lowStockAlert);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 5;
+  };
 
   const handleModalScrollWheel = (event) => {
     const container = event.currentTarget;
@@ -219,7 +235,7 @@ const ProductManagement = () => {
       let matchesStatus = filterStatus === "All";
       if (filterStatus === "Active") matchesStatus = p.status === "active";
       if (filterStatus === "Low Stock")
-        matchesStatus = p.stock > 0 && p.stock <= 10;
+        matchesStatus = p.stock > 0 && p.stock <= resolveLowStockThreshold(p);
       if (filterStatus === "Out of Stock") matchesStatus = p.stock === 0;
 
       let matchesPrice = true;
@@ -237,12 +253,20 @@ const ProductManagement = () => {
 
   const stats = useMemo(
     () => ({
-      total: safeProducts.length,
-      lowStock: safeProducts.filter((p) => p.stock > 0 && p.stock <= 10).length,
-      outOfStock: safeProducts.filter((p) => p.stock === 0).length,
-      active: safeProducts.filter((p) => p.status === "active").length,
+      total:
+        summaryStats?.total ??
+        (typeof total === "number" ? total : safeProducts.length),
+      lowStock:
+        summaryStats?.lowStock ??
+        safeProducts.filter((p) => p.stock > 0 && p.stock <= resolveLowStockThreshold(p)).length,
+      outOfStock:
+        summaryStats?.outOfStock ??
+        safeProducts.filter((p) => p.stock === 0).length,
+      active:
+        summaryStats?.active ??
+        safeProducts.filter((p) => p.status === "active").length,
     }),
-    [safeProducts],
+    [safeProducts, summaryStats, total],
   );
 
   const handleSave = async () => {

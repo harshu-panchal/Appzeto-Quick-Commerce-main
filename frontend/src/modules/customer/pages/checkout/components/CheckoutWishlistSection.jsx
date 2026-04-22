@@ -19,11 +19,11 @@ const CheckoutWishlistSection = React.memo(function CheckoutWishlistSection({
   return (
     <div ref={sectionRef} className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
       <h3 className="font-black text-slate-800 text-lg mb-4">Your wishlist</h3>
-      <div className="flex gap-4 overflow-x-auto pb-4 no-scrollbar -mx-4 px-4 snap-x">
+      <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar -mx-4 px-4 snap-x">
         {visibleItems.map((item) => (
           <div
             key={`${item.id}::${String(item.variantSku || "").trim()}`}
-            className="flex-shrink-0 w-[140px] snap-start">
+            className="flex-shrink-0 w-[104px] sm:w-[112px] md:w-[140px] snap-start">
             <ProductCard product={item} compact={true} />
           </div>
         ))}

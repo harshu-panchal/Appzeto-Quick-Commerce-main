@@ -84,7 +84,7 @@ export async function fetchSellerOrdersPage({
     endDate,
   });
 
-  const [orders, total] = await Promise.all([
+  const [orders, total, summaryRows] = await Promise.all([
     Order.find(query)
       .sort({ createdAt: -1, _id: -1 })
       .skip(skip)
@@ -95,12 +95,74 @@ export async function fetchSellerOrdersPage({
       .populate("seller", "shopName name")
       .lean(),
     Order.countDocuments(query),
+    Order.aggregate([
+      { $match: query },
+      {
+        $group: {
+          _id: null,
+          totalOrders: { $sum: 1 },
+          totalAmount: { $sum: { $ifNull: ["$pricing.total", 0] } },
+          pending: {
+            $sum: { $cond: [{ $eq: ["$status", "pending"] }, 1, 0] },
+          },
+          confirmed: {
+            $sum: { $cond: [{ $eq: ["$status", "confirmed"] }, 1, 0] },
+          },
+          packed: {
+            $sum: { $cond: [{ $eq: ["$status", "packed"] }, 1, 0] },
+          },
+          outForDelivery: {
+            $sum: { $cond: [{ $eq: ["$status", "out_for_delivery"] }, 1, 0] },
+          },
+          delivered: {
+            $sum: { $cond: [{ $eq: ["$status", "delivered"] }, 1, 0] },
+          },
+          cancelled: {
+            $sum: { $cond: [{ $eq: ["$status", "cancelled"] }, 1, 0] },
+          },
+          returned: {
+            $sum: {
+              $cond: [
+                {
+                  $and: [
+                    { $ne: ["$returnStatus", null] },
+                    { $ne: ["$returnStatus", ""] },
+                    { $ne: ["$returnStatus", "none"] },
+                  ],
+                },
+                1,
+                0,
+              ],
+            },
+          },
+        },
+      },
+    ]),
   ]);
+
+  const rawSummary = summaryRows?.[0] || {};
+  const summary = {
+    totalOrders: Number(rawSummary.totalOrders || 0),
+    totalAmount: Number(rawSummary.totalAmount || 0),
+    pending: Number(rawSummary.pending || 0),
+    confirmed: Number(rawSummary.confirmed || 0),
+    packed: Number(rawSummary.packed || 0),
+    outForDelivery: Number(rawSummary.outForDelivery || 0),
+    delivered: Number(rawSummary.delivered || 0),
+    cancelled: Number(rawSummary.cancelled || 0),
+    returned: Number(rawSummary.returned || 0),
+  };
+  summary.activeOrders =
+    summary.pending +
+    summary.confirmed +
+    summary.packed +
+    summary.outForDelivery;
 
   return {
     query,
     orders,
     total,
+    summary,
   };
 }
 

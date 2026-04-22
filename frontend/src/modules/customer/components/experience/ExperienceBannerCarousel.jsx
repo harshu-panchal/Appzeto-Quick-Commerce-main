@@ -7,13 +7,29 @@ import {
   isCloudinaryUrl,
 } from "@/core/utils/imageUtils";
 
+const BANNER_CHUNK_SIZE = 20;
+
 const ExperienceBannerCarousel = ({ section, items, fullWidth = false, slideGap = 0, edgeToEdge = false }) => {
   if (!items.length) return null;
 
   const [activeIndex, setActiveIndex] = React.useState(0);
-  const totalItems = items.length;
+  const [visibleCount, setVisibleCount] = React.useState(() =>
+    Math.min(items.length, BANNER_CHUNK_SIZE)
+  );
+  const visibleItems = items.slice(0, visibleCount);
+  const totalItems = visibleItems.length;
   const x = useMotionValue(0);
   const containerRef = React.useRef(null);
+  const hasMore = visibleCount < items.length;
+
+  const loadMore = React.useCallback(() => {
+    setVisibleCount((prev) => Math.min(items.length, prev + BANNER_CHUNK_SIZE));
+  }, [items.length]);
+
+  React.useEffect(() => {
+    setVisibleCount(Math.min(items.length, BANNER_CHUNK_SIZE));
+    setActiveIndex(0);
+  }, [items.length]);
 
   // Auto-play logic
   React.useEffect(() => {
@@ -25,6 +41,13 @@ const ExperienceBannerCarousel = ({ section, items, fullWidth = false, slideGap 
 
     return () => clearInterval(intervalId);
   }, [totalItems]);
+
+  React.useEffect(() => {
+    if (!hasMore) return;
+    if (activeIndex >= totalItems - 2) {
+      loadMore();
+    }
+  }, [activeIndex, totalItems, hasMore, loadMore]);
 
   const handleDragEnd = (_, info) => {
     const threshold = 50;
@@ -56,7 +79,7 @@ const ExperienceBannerCarousel = ({ section, items, fullWidth = false, slideGap 
         className="flex"
         style={{ width: `${totalItems * 100}%` }}
       >
-        {items.map((banner, idx) => (
+        {visibleItems.map((banner, idx) => (
           <div
             key={idx}
             className={cn(

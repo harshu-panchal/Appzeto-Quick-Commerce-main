@@ -10,6 +10,7 @@ import {
 import { useNavigate, useLocation } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { sellerApi } from '@/modules/seller/services/sellerApi';
+import { adminApi } from '@/modules/admin/services/adminApi';
 import { AnimatePresence } from 'framer-motion';
 import NotificationPopup from './NotificationPopup';
 import { toast } from 'sonner';
@@ -32,6 +33,7 @@ const Topbar = ({ onMenuClick }) => {
     const notificationRef = React.useRef(null);
 
     const isSeller = location.pathname.startsWith('/seller');
+    const isAdmin = location.pathname.startsWith('/admin');
 
     const handleSearchSubmit = (e) => {
         e?.preventDefault();
@@ -44,10 +46,10 @@ const Topbar = ({ onMenuClick }) => {
 
     const fetchNotifications = async () => {
         try {
-            // Only fetch for sellers for now as per request
-            if (!isSeller) return;
-
-            const response = await sellerApi.getNotifications();
+            if (!isSeller && !isAdmin) return;
+            const response = isSeller
+                ? await sellerApi.getNotifications()
+                : await adminApi.getNotifications();
             if (response.data.success) {
                 setNotifications(response.data.result.notifications);
                 setUnreadCount(response.data.result.unreadCount);
@@ -59,7 +61,10 @@ const Topbar = ({ onMenuClick }) => {
 
     React.useEffect(() => {
         fetchNotifications();
-    }, [isSeller]);
+        if (!isSeller && !isAdmin) return undefined;
+        const poll = setInterval(fetchNotifications, 20000);
+        return () => clearInterval(poll);
+    }, [isSeller, isAdmin]);
 
     // Handle Click Outside
     React.useEffect(() => {
@@ -74,7 +79,9 @@ const Topbar = ({ onMenuClick }) => {
 
     const handleMarkAsRead = async (id) => {
         try {
-            await sellerApi.markNotificationRead(id);
+            if (!id) return;
+            if (isSeller) await sellerApi.markNotificationRead(id);
+            if (isAdmin) await adminApi.markNotificationRead(id);
             fetchNotifications();
         } catch (error) {
             toast.error("Failed to mark as read");
@@ -83,7 +90,8 @@ const Topbar = ({ onMenuClick }) => {
 
     const handleMarkAllAsRead = async () => {
         try {
-            await sellerApi.markAllNotificationsRead();
+            if (isSeller) await sellerApi.markAllNotificationsRead();
+            if (isAdmin) await adminApi.markAllNotificationsRead();
             fetchNotifications();
             toast.success("All caught up!");
         } catch (error) {

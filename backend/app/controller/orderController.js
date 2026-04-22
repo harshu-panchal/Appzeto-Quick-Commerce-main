@@ -1759,7 +1759,7 @@ export const getSellerOrders = async (req, res) => {
       maxLimit: 100,
     });
 
-    const { orders, total } = await fetchSellerOrdersPage({
+    const { orders, total, summary } = await fetchSellerOrdersPage({
       role,
       userId,
       statusParam,
@@ -1780,6 +1780,7 @@ export const getSellerOrders = async (req, res) => {
         limit,
         total,
         totalPages: Math.ceil(total / limit) || 1,
+        summary,
       },
     );
   } catch (error) {

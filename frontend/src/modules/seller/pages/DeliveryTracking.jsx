@@ -37,14 +37,33 @@ const DeliveryTracking = () => {
   const fetchDeliveries = async () => {
     try {
       setLoading(true);
-      const response = await sellerApi.getOrders();
-      // Only show orders that are confirmed, packed, or out for delivery (Tracking flow)
-      const payload = response.data.result || {};
-      const orderList = Array.isArray(payload.items)
-        ? payload.items
-        : (response.data.results || []);
+      const requestLimit = 100;
+      const maxPages = 50;
+      let requestedPage = 1;
+      let totalPages = 1;
+      const collectedOrders = [];
 
-      const formattedDeliveries = orderList
+      while (requestedPage <= totalPages && requestedPage <= maxPages) {
+        const response = await sellerApi.getOrders({
+          page: requestedPage,
+          limit: requestLimit,
+        });
+        const payload = response.data.result || {};
+        const pageOrders = Array.isArray(payload.items)
+          ? payload.items
+          : (response.data.results || []);
+
+        collectedOrders.push(...pageOrders);
+        totalPages = Number(payload.totalPages || 1);
+
+        if (!pageOrders.length || requestedPage >= totalPages) {
+          break;
+        }
+        requestedPage += 1;
+      }
+
+      // Only show orders that are confirmed, packed, or out for delivery (Tracking flow)
+      const formattedDeliveries = collectedOrders
         .filter(order => order.status !== 'pending' && order.status !== 'cancelled')
         .map(order => {
           let uiStatus = "Active";

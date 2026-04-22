@@ -64,6 +64,9 @@ export const adminApi = {
         const { mediaUrl = "", mediaType = "", mimeType = "" } = options || {};
         return axiosInstance.post(`/tickets/reply/${id}`, { text, isAdmin: true, mediaUrl, mediaType, mimeType });
     },
+    getNotifications: () => axiosInstance.get('/notifications'),
+    markNotificationRead: (id) => axiosInstance.put(`/notifications/${id}/read`),
+    markAllNotificationsRead: () => axiosInstance.put('/notifications/mark-all-read'),
     broadcastNotification: (data) => axiosInstance.post('/notifications/broadcast', data),
     getBroadcastAudienceStats: () => axiosInstance.get('/notifications/broadcast/audience-stats'),
 

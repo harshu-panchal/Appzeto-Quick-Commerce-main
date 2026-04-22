@@ -33,48 +33,52 @@ const NotificationPopup = ({ notifications, onMarkAsRead, onMarkAllAsRead, onClo
             <div className="flex-1 md:max-h-[400px] overflow-y-auto custom-scrollbar">
                 {notifications.length > 0 ? (
                     <div className="divide-y divide-gray-50">
-                        {notifications.map((notif) => (
-                            <div
-                                key={notif._id}
-                                className={cn(
-                                    "p-4 hover:bg-slate-50 transition-all cursor-pointer group relative",
-                                    !notif.isRead && "bg-primary/[0.02]"
-                                )}
-                                onClick={() => !notif.isRead && onMarkAsRead(notif._id)}
-                            >
-                                {!notif.isRead && (
-                                    <div className="absolute left-0 top-0 bottom-0 w-1 bg-primary rounded-r-full" />
-                                )}
-                                <div className="flex gap-4">
-                                    <div className={cn(
-                                        "h-10 w-10 rounded-xl flex items-center justify-center flex-shrink-0 transition-transform group-hover:scale-110",
-                                        notif.type === 'order' ? "bg-brand-50 text-brand-600" :
-                                            notif.type === 'payment' ? "bg-amber-50 text-amber-600" :
-                                                "bg-brand-50 text-brand-600"
-                                    )}>
-                                        {notif.type === 'order' ? <HiOutlineCheckCircle size={20} /> :
-                                            notif.type === 'payment' ? <HiOutlineClock size={20} /> :
-                                                <HiOutlineExclamationCircle size={20} />}
-                                    </div>
-                                    <div className="flex-1">
-                                        <div className="flex items-center justify-between mb-1">
-                                            <p className={cn(
-                                                "text-xs font-black tracking-tight",
-                                                notif.isRead ? "text-slate-600" : "text-slate-900"
-                                            )}>
-                                                {notif.title}
-                                            </p>
-                                            <span className="text-[9px] font-bold text-slate-400">
-                                                {new Date(notif.createdAt).toLocaleDateString()}
-                                            </span>
+                        {notifications.map((notif) => {
+                            const notificationId = notif?._id || notif?.id;
+                            const messageText = notif?.message || notif?.body || "";
+                            return (
+                                <div
+                                    key={notificationId}
+                                    className={cn(
+                                        "p-4 hover:bg-slate-50 transition-all cursor-pointer group relative",
+                                        !notif.isRead && "bg-primary/[0.02]"
+                                    )}
+                                    onClick={() => !notif.isRead && onMarkAsRead(notificationId)}
+                                >
+                                    {!notif.isRead && (
+                                        <div className="absolute left-0 top-0 bottom-0 w-1 bg-primary rounded-r-full" />
+                                    )}
+                                    <div className="flex gap-4">
+                                        <div className={cn(
+                                            "h-10 w-10 rounded-xl flex items-center justify-center flex-shrink-0 transition-transform group-hover:scale-110",
+                                            notif.type === 'order' ? "bg-brand-50 text-brand-600" :
+                                                notif.type === 'payment' ? "bg-amber-50 text-amber-600" :
+                                                    "bg-brand-50 text-brand-600"
+                                        )}>
+                                            {notif.type === 'order' ? <HiOutlineCheckCircle size={20} /> :
+                                                notif.type === 'payment' ? <HiOutlineClock size={20} /> :
+                                                    <HiOutlineExclamationCircle size={20} />}
                                         </div>
-                                        <p className="text-[11px] text-slate-500 font-medium leading-relaxed line-clamp-2">
-                                            {notif.message}
-                                        </p>
+                                        <div className="flex-1">
+                                            <div className="flex items-center justify-between mb-1">
+                                                <p className={cn(
+                                                    "text-xs font-black tracking-tight",
+                                                    notif.isRead ? "text-slate-600" : "text-slate-900"
+                                                )}>
+                                                    {notif.title}
+                                                </p>
+                                                <span className="text-[9px] font-bold text-slate-400">
+                                                    {new Date(notif.createdAt).toLocaleDateString()}
+                                                </span>
+                                            </div>
+                                            <p className="text-[11px] text-slate-500 font-medium leading-relaxed line-clamp-2">
+                                                {messageText}
+                                            </p>
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
-                        ))}
+                            );
+                        })}
                     </div>
                 ) : (
                     <div className="py-12 px-6 text-center">

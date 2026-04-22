@@ -299,6 +299,7 @@ export const getSellerStats = async (req, res) => {
 export const getSellerEarnings = async (req, res) => {
     try {
         const sellerId = req.user.id;
+        const sellerOid = new mongoose.Types.ObjectId(sellerId);
 
         const transactions = await Transaction.find({ user: sellerId, userModel: 'Seller' })
             .sort({ createdAt: -1 })
@@ -317,9 +318,23 @@ export const getSellerEarnings = async (req, res) => {
         const onHoldBalance = wallet ? wallet.pendingBalance : 0;
         const liveAvailableBalance = wallet ? wallet.availableBalance : settledBalance;
 
-        const totalRevenue = transactions
-            .filter(t => t.type === 'Order Payment')
-            .reduce((acc, t) => acc + t.amount, 0);
+        // Keep "Total Revenue" aligned with Dashboard definition:
+        // sum of non-cancelled seller orders from Order collection.
+        const [orderRevenueAgg] = await Order.aggregate([
+            {
+                $match: {
+                    seller: sellerOid,
+                    status: { $ne: 'cancelled' },
+                },
+            },
+            {
+                $group: {
+                    _id: null,
+                    totalRevenue: { $sum: { $ifNull: ["$pricing.total", 0] } },
+                },
+            },
+        ]);
+        const totalRevenue = Number(orderRevenueAgg?.totalRevenue || 0);
 
         const totalWithdrawn = transactions
             .filter(t => t.type === 'Withdrawal' && t.status === 'Settled')

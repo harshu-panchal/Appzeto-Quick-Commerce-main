@@ -39,6 +39,18 @@ import { DatePicker } from "@/components/ui/date-picker";
 
 const Orders = () => {
     const [orders, setOrders] = useState([]);
+    const [summary, setSummary] = useState({
+        totalOrders: 0,
+        totalAmount: 0,
+        pending: 0,
+        confirmed: 0,
+        packed: 0,
+        outForDelivery: 0,
+        delivered: 0,
+        cancelled: 0,
+        returned: 0,
+        activeOrders: 0,
+    });
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState('All');
     const [searchTerm, setSearchTerm] = useState('');
@@ -119,6 +131,18 @@ const Orders = () => {
             }));
 
             setOrders(formattedOrders);
+            setSummary({
+                totalOrders: Number(payload.summary?.totalOrders || payload.total || formattedOrders.length || 0),
+                totalAmount: Number(payload.summary?.totalAmount || 0),
+                pending: Number(payload.summary?.pending || 0),
+                confirmed: Number(payload.summary?.confirmed || 0),
+                packed: Number(payload.summary?.packed || 0),
+                outForDelivery: Number(payload.summary?.outForDelivery || 0),
+                delivered: Number(payload.summary?.delivered || 0),
+                cancelled: Number(payload.summary?.cancelled || 0),
+                returned: Number(payload.summary?.returned || 0),
+                activeOrders: Number(payload.summary?.activeOrders || 0),
+            });
             if (typeof payload.total === 'number') {
                 setTotal(payload.total);
             } else {
@@ -155,33 +179,33 @@ const Orders = () => {
     const stats = useMemo(() => [
         {
             label: 'Total Orders',
-            value: safeOrders.length,
+            value: summary.totalOrders,
             icon: HiOutlineArchiveBoxXMark,
             color: 'text-brand-600',
             bg: 'bg-brand-50'
         },
         {
             label: 'Pending',
-            value: safeOrders.filter(o => o.status.toLowerCase() === 'pending').length,
+            value: summary.pending,
             icon: HiOutlineClock,
             color: 'text-amber-600',
             bg: 'bg-amber-50'
         },
         {
             label: 'Confirmed',
-            value: safeOrders.filter(o => o.status.toLowerCase() === 'confirmed').length,
+            value: summary.confirmed,
             icon: HiOutlineCheck,
             color: 'text-brand-600',
             bg: 'bg-brand-50'
         },
         {
             label: 'Delivered',
-            value: safeOrders.filter(o => o.status.toLowerCase() === 'delivered').length,
+            value: summary.delivered,
             icon: HiOutlineCheck,
             color: 'text-brand-600',
             bg: 'bg-brand-50'
         }
-    ], [safeOrders]);
+    ], [summary]);
 
     const getStatusColor = (status) => {
         const s = status.toLowerCase();
@@ -628,7 +652,7 @@ const Orders = () => {
 
                             <div className="p-3 sm:p-4 border-t border-slate-50 bg-slate-50/30 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 px-3 sm:px-6">
                                 <p className="text-[10px] sm:text-xs font-bold text-slate-600 uppercase tracking-widest text-center sm:text-left">
-                                    Showing {filteredOrders.length} of {orders.length} Orders
+                                    Showing {filteredOrders.length} of {total || summary.totalOrders || filteredOrders.length} Orders
                                 </p>
                                 <div className="flex gap-1 justify-center sm:justify-end">
                                     <button className="p-1.5 rounded-lg border border-slate-200 text-slate-600 opacity-50 cursor-not-allowed" aria-hidden><HiOutlineChevronRight className="h-3.5 w-3.5 rotate-180" /></button>
@@ -694,11 +718,11 @@ const Orders = () => {
                                         <div className="grid grid-cols-2 gap-3 sm:gap-4">
                                             <div className="p-3 sm:p-4 rounded-2xl bg-brand-50 border border-brand-100">
                                                 <p className="text-[10px] sm:text-xs font-bold text-brand-400 uppercase tracking-widest mb-1">Total Revenue</p>
-                                                <p className="text-base sm:text-xl font-black text-brand-700 truncate">₹{safeOrders.reduce((acc, o) => acc + o.total, 0).toLocaleString()}</p>
+                                                <p className="text-base sm:text-xl font-black text-brand-700 truncate">₹{summary.totalAmount.toLocaleString('en-IN')}</p>
                                             </div>
                                             <div className="p-3 sm:p-4 rounded-2xl bg-brand-50 border border-brand-100">
                                                 <p className="text-[10px] sm:text-xs font-bold text-brand-400 uppercase tracking-widest mb-1">Avg. Order Value</p>
-                                                <p className="text-base sm:text-xl font-black text-brand-700">₹{safeOrders.length ? (safeOrders.reduce((acc, o) => acc + o.total, 0) / safeOrders.length).toFixed(0) : '0'}</p>
+                                                <p className="text-base sm:text-xl font-black text-brand-700">₹{summary.totalOrders ? (summary.totalAmount / summary.totalOrders).toFixed(0) : '0'}</p>
                                             </div>
                                         </div>
                                     </div>

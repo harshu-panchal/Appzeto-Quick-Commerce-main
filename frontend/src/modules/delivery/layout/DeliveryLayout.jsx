@@ -17,6 +17,7 @@ import {
   markIncomingOrderHandled,
 } from "../utils/deliveryHandledOrders";
 import { saveDeliveryPartnerLocation } from "../utils/deliveryLastLocation";
+import orderAlertSound from "@/assets/sounds/order_alert.mp3";
 
 /** Match server `deliverySearchExpiresAt` — progress bar + countdown stay aligned when modal opens late. */
 function secondsLeftUntilDeliveryExpiry(expiresAt) {
@@ -45,6 +46,79 @@ const DeliveryLayout = () => {
   const availableOrdersRequestRef = useRef({ inFlight: false, controller: null });
   const notificationsRequestRef = useRef({ inFlight: false, controller: null });
   const locationRequestRef = useRef({ inFlight: false, controller: null });
+  const orderRingtoneRef = useRef(null);
+  const ringtoneRetryTimerRef = useRef(null);
+  const ringtoneUnlockHandlerRef = useRef(null);
+
+  const getOrderRingtone = () => {
+    if (!orderRingtoneRef.current) {
+      const audio = new Audio(orderAlertSound);
+      audio.loop = true;
+      audio.preload = "auto";
+      orderRingtoneRef.current = audio;
+    }
+    return orderRingtoneRef.current;
+  };
+
+  const startOrderRingtone = () => {
+    const audio = getOrderRingtone();
+    audio.loop = true;
+    audio.preload = "auto";
+    audio.muted = false;
+    audio.volume = 1;
+    audio.play().catch(() => { });
+
+    if (!ringtoneRetryTimerRef.current) {
+      ringtoneRetryTimerRef.current = setInterval(() => {
+        if (!activeOrderRef.current) return;
+        const currentAudio = getOrderRingtone();
+        if (!currentAudio.paused) return;
+        currentAudio.play().catch(() => { });
+      }, 1200);
+    }
+
+    if (
+      !ringtoneUnlockHandlerRef.current &&
+      typeof window !== "undefined" &&
+      typeof document !== "undefined"
+    ) {
+      const unlockPlayback = () => {
+        if (!activeOrderRef.current) return;
+        const currentAudio = getOrderRingtone();
+        if (!currentAudio.paused) return;
+        currentAudio.play().catch(() => { });
+      };
+      ringtoneUnlockHandlerRef.current = unlockPlayback;
+      window.addEventListener("focus", unlockPlayback);
+      document.addEventListener("visibilitychange", unlockPlayback);
+      document.addEventListener("pointerdown", unlockPlayback);
+      document.addEventListener("touchstart", unlockPlayback);
+      document.addEventListener("keydown", unlockPlayback);
+    }
+  };
+
+  const stopOrderRingtone = () => {
+    const audio = orderRingtoneRef.current;
+    if (ringtoneRetryTimerRef.current) {
+      clearInterval(ringtoneRetryTimerRef.current);
+      ringtoneRetryTimerRef.current = null;
+    }
+    if (
+      ringtoneUnlockHandlerRef.current &&
+      typeof window !== "undefined" &&
+      typeof document !== "undefined"
+    ) {
+      window.removeEventListener("focus", ringtoneUnlockHandlerRef.current);
+      document.removeEventListener("visibilitychange", ringtoneUnlockHandlerRef.current);
+      document.removeEventListener("pointerdown", ringtoneUnlockHandlerRef.current);
+      document.removeEventListener("touchstart", ringtoneUnlockHandlerRef.current);
+      document.removeEventListener("keydown", ringtoneUnlockHandlerRef.current);
+      ringtoneUnlockHandlerRef.current = null;
+    }
+    if (!audio) return;
+    audio.pause();
+    audio.currentTime = 0;
+  };
 
   useEffect(() => {
     activeOrderRef.current = activeOrder;
@@ -95,8 +169,6 @@ const DeliveryLayout = () => {
       isReturnPickup: payload.type === "RETURN_PICKUP" || payload.isReturnPickup === true,
       items: payload.items || [],
     });
-    const audio = new Audio("https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3");
-    audio.play().catch(() => { });
     return true;
   }, []);
 
@@ -135,8 +207,21 @@ const DeliveryLayout = () => {
       isReturnPickup,
       items: newOrder.items || [],
     });
-    const audio = new Audio("https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3");
-    audio.play().catch(() => { });
+  }, []);
+
+  useEffect(() => {
+    if (activeOrder) {
+      startOrderRingtone();
+      return undefined;
+    }
+    stopOrderRingtone();
+    return undefined;
+  }, [activeOrder]);
+
+  useEffect(() => {
+    return () => {
+      stopOrderRingtone();
+    };
   }, []);
 
   const hideBottomNavRoutes = [
@@ -356,6 +441,7 @@ const DeliveryLayout = () => {
       if (activeOrderRef.current?.id === orderId) {
         acceptInFlightRef.current = false;
         setIsAcceptingOrder(false);
+        stopOrderRingtone();
         setActiveOrder(null);
         toast.info("Another delivery partner accepted this order.");
       }
@@ -432,6 +518,7 @@ const DeliveryLayout = () => {
       }
       shownOrderIdsRef.current = new Set(shownOrderIdsRef.current).add(current.id);
       markIncomingOrderHandled(current.id);
+      stopOrderRingtone();
       setActiveOrder(null);
       toast.info("Order skipped");
     } catch (error) {
@@ -494,6 +581,7 @@ const DeliveryLayout = () => {
       const orderId = activeOrder.id;
       shownOrderIdsRef.current = new Set(shownOrderIdsRef.current).add(orderId);
       markIncomingOrderHandled(orderId);
+      stopOrderRingtone();
       setActiveOrder(null);
       navigate(`/delivery/order-details/${orderId}`);
     } catch (error) {

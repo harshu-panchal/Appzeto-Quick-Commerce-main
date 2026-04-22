@@ -1319,8 +1319,8 @@ const Home = () => {
                 }}>
                 <div className="absolute inset-0 bg-white/10 pointer-events-none" />
 
-                <div className="relative z-10 px-4 pt-3 pb-1 md:px-8 md:pt-4">
-                  <h2 className="text-center text-[18px] md:text-[20px] font-bold tracking-tight text-[#132018] leading-none">
+                <div className="relative z-10 px-4 pt-2.5 pb-0.5 md:px-8 md:pt-4">
+                  <h2 className="text-center text-[17px] md:text-[20px] font-bold tracking-tight text-[#132018] leading-none">
                     Quick categories
                   </h2>
                 </div>
@@ -1338,7 +1338,7 @@ const Home = () => {
 
                 <div
                   ref={quickCatsRef}
-                  className="relative z-10 flex items-start gap-2.5 md:gap-3 lg:gap-4 overflow-x-auto no-scrollbar px-4 pb-3 pt-1 md:px-8 md:pb-4 snap-x scroll-smooth">
+                  className="relative z-10 flex items-start gap-2 md:gap-3 lg:gap-4 overflow-x-auto no-scrollbar px-4 pb-2 pt-1 md:px-8 md:pb-4 snap-x scroll-smooth">
                   {effectiveQuickCategories.map((cat, idx) => {
                     const palette =
                       quickCategoryPalettes[idx % quickCategoryPalettes.length];
@@ -1348,9 +1348,9 @@ const Home = () => {
                         whileHover={{ y: -4 }}
                         whileTap={{ scale: 0.96 }}
                         onClick={() => navigate(`/category/${cat.id}`)}
-                        className="flex flex-col items-center gap-1 min-w-[84px] md:min-w-[112px] lg:min-w-[128px] cursor-pointer group/item snap-start">
+                        className="flex flex-col items-center gap-0.5 min-w-[74px] md:min-w-[104px] lg:min-w-[120px] cursor-pointer group/item snap-start">
                         <div
-                          className="relative w-[84px] h-[96px] md:w-[112px] md:h-[126px] lg:w-[128px] lg:h-[140px] rounded-[22px] shadow-[0_10px_22px_rgba(15,23,42,0.10)] border flex items-start justify-center p-2 transition-all duration-300 group-hover/item:-translate-y-1 group-hover/item:shadow-[0_16px_30px_rgba(15,23,42,0.14)] overflow-hidden"
+                          className="relative w-[74px] h-[84px] md:w-[104px] md:h-[116px] lg:w-[120px] lg:h-[132px] rounded-[18px] md:rounded-[22px] shadow-[0_8px_18px_rgba(15,23,42,0.10)] border flex items-start justify-center p-1.5 md:p-2 transition-all duration-300 group-hover/item:-translate-y-1 group-hover/item:shadow-[0_16px_30px_rgba(15,23,42,0.14)] overflow-hidden"
                           style={{
                             backgroundImage: `linear-gradient(135deg, rgba(255,255,255,0.96) 0%, rgba(255,255,255,0.6) 24%, rgba(255,255,255,0.15) 100%), linear-gradient(135deg, ${palette.bgFrom}, ${palette.bgVia}, ${palette.bgTo})`,
                             borderColor: palette.frameColor,
@@ -1363,10 +1363,10 @@ const Home = () => {
                             src={applyCloudinaryTransform(cat.image)}
                             alt={cat.name}
                             loading="lazy"
-                            className="absolute left-1/2 top-3 z-10 h-[68px] w-[68px] -translate-x-1/2 object-contain drop-shadow-[0_5px_12px_rgba(0,0,0,0.10)] mix-blend-multiply group-hover/item:scale-110 transition-transform duration-500"
+                            className="absolute left-1/2 top-2.5 md:top-3 z-10 h-[56px] w-[56px] md:h-[64px] md:w-[64px] -translate-x-1/2 object-contain drop-shadow-[0_5px_12px_rgba(0,0,0,0.10)] mix-blend-multiply group-hover/item:scale-110 transition-transform duration-500"
                           />
-                          <div className="absolute inset-x-2 bottom-1.5 z-20 text-center">
-                            <span className="block text-[10px] md:text-[11px] lg:text-[12px] font-semibold text-[#1f2b20] leading-tight whitespace-nowrap overflow-hidden text-ellipsis drop-shadow-[0_1px_0_rgba(255,255,255,0.65)] group-hover/item:text-primary transition-colors">
+                          <div className="absolute inset-x-1.5 md:inset-x-2 bottom-1.5 z-20 text-center">
+                            <span className="block text-[9px] md:text-[10px] lg:text-[11px] font-semibold text-[#1f2b20] leading-tight whitespace-nowrap overflow-hidden text-ellipsis drop-shadow-[0_1px_0_rgba(255,255,255,0.65)] group-hover/item:text-primary transition-colors">
                               {cat.name}
                             </span>
                           </div>
@@ -1425,13 +1425,13 @@ const Home = () => {
                 </div>
 
                 <div className="relative z-10 flex overflow-x-auto gap-3 md:gap-6 pb-2 md:pb-3 no-scrollbar -mx-4 px-4 md:mx-0 md:px-0 snap-x snap-mandatory scroll-smooth">
-                  {products.slice(0, 12).map((product) => (
-                    <div
-                      key={product.id}
-                      className="w-[140px] md:w-[140px] shrink-0 snap-start">
-                      <ProductCard
-                        product={product}
-                        className="bg-white shadow-[0_8px_20px_-8px_rgba(0,0,0,0.1)] md:shadow-[0_15px_30px_rgba(0,0,0,0.05)] border-brand-50/50 md:border-slate-100 transition-all"
+	                  {products.slice(0, 12).map((product) => (
+	                    <div
+	                      key={product.id}
+	                      className="w-[104px] sm:w-[112px] md:w-[124px] shrink-0 snap-start">
+	                      <ProductCard
+	                        product={product}
+	                        className="bg-white shadow-[0_8px_20px_-8px_rgba(0,0,0,0.1)] md:shadow-[0_15px_30px_rgba(0,0,0,0.05)] border-brand-50/50 md:border-slate-100 transition-all"
                         compact={true}
                       />
                     </div>
@@ -1567,13 +1567,13 @@ const Home = () => {
                               </p>
                             </div>
                           ) : (
-                            sectionProducts.map((product) => (
-                              <div
-                                key={product.id}
-                                className="w-[140px] md:w-[140px] flex-shrink-0 snap-start">
-                                <ProductCard
-                                  product={product}
-                                  className="bg-white border border-slate-100 shadow-[0_10px_24px_rgba(15,23,42,0.08)]"
+	                            sectionProducts.map((product) => (
+	                              <div
+	                                key={product.id}
+	                                className="w-[104px] sm:w-[112px] md:w-[124px] flex-shrink-0 snap-start">
+	                                <ProductCard
+	                                  product={product}
+	                                  className="bg-white border border-slate-100 shadow-[0_10px_24px_rgba(15,23,42,0.08)]"
                                   compact
                                 />
                               </div>

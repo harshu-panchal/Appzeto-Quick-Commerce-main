@@ -36,6 +36,18 @@ const OrdersList = () => {
     const [searchTerm, setSearchTerm] = useState('');
     const [dateRange, setDateRange] = useState('All Time');
     const [orders, setOrders] = useState([]);
+    const [summary, setSummary] = useState({
+        totalOrders: 0,
+        totalAmount: 0,
+        pending: 0,
+        confirmed: 0,
+        packed: 0,
+        outForDelivery: 0,
+        delivered: 0,
+        cancelled: 0,
+        returned: 0,
+        activeOrders: 0,
+    });
     const [page, setPage] = useState(1);
     const [pageSize, setPageSize] = useState(25);
     const [total, setTotal] = useState(0);
@@ -102,6 +114,18 @@ const OrdersList = () => {
                     payment: o.payment?.method === 'cod' ? 'COD' : 'Digital',
                 }));
                 setOrders(formatted);
+                setSummary({
+                    totalOrders: Number(payload.summary?.totalOrders || payload.total || formatted.length || 0),
+                    totalAmount: Number(payload.summary?.totalAmount || 0),
+                    pending: Number(payload.summary?.pending || 0),
+                    confirmed: Number(payload.summary?.confirmed || 0),
+                    packed: Number(payload.summary?.packed || 0),
+                    outForDelivery: Number(payload.summary?.outForDelivery || 0),
+                    delivered: Number(payload.summary?.delivered || 0),
+                    cancelled: Number(payload.summary?.cancelled || 0),
+                    returned: Number(payload.summary?.returned || 0),
+                    activeOrders: Number(payload.summary?.activeOrders || 0),
+                });
                 if (typeof payload.total === 'number') {
                     setTotal(payload.total);
                 } else {
@@ -145,10 +169,8 @@ const OrdersList = () => {
     );
 
     const stats = useMemo(() => {
-        const totalEarnings = safeOrders.reduce((sum, o) => sum + o.amount, 0);
-        const activeOrders = safeOrders.filter(o =>
-            ['pending', 'confirmed', 'packed', 'out_for_delivery'].includes(o.status),
-        ).length;
+        const totalEarnings = summary.totalAmount;
+        const activeOrders = summary.activeOrders;
 
         return [
             { label: 'Total Earnings', value: `₹${totalEarnings.toLocaleString('en-IN')}`, trend: '+12.5%', icon: IndianRupee, color: 'emerald' },
@@ -156,7 +178,7 @@ const OrdersList = () => {
             { label: 'Average Prep Time', value: '18m', trend: '-2m', icon: Clock, color: 'amber' },
             { label: 'Delivery Rate', value: '98.2%', trend: '+0.4%', icon: CheckCircle2, color: 'fuchsia' },
         ];
-    }, [safeOrders]);
+    }, [summary]);
 
     const filteredOrders = useMemo(() => {
         return safeOrders.filter(order => {
