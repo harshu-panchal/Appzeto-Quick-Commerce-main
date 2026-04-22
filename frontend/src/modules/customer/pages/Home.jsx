@@ -460,6 +460,7 @@ const Home = () => {
   const [products, setProducts] = useState(
     () => cachedHomePageData?.products || [],
   );
+  const productsRef = useRef(cachedHomePageData?.products || []);
   const [quickCategories, setQuickCategories] = useState(
     () => cachedHomePageData?.quickCategories || [],
   );
@@ -487,6 +488,10 @@ const Home = () => {
     () => cachedHomePageData?.offerSections || [],
   );
   const [noServiceData, setNoServiceData] = useState(null);
+
+  useEffect(() => {
+    productsRef.current = products || [];
+  }, [products]);
 
   // Dynamically load no-service Lottie when products are empty and not loading
   useEffect(() => {
@@ -760,6 +765,82 @@ const Home = () => {
       if (expRes && expRes.data && expRes.data.success) {
         const raw = expRes.data.result || expRes.data.results || expRes.data;
         nextHomeData.experienceSections = Array.isArray(raw) ? raw : [];
+
+        // Ensure admin-selected manual productIds are always resolvable in SectionRenderer.
+        // Otherwise sections can appear truncated when those products are not in the default feed.
+        const selectedProductIds = Array.from(
+          new Set(
+            nextHomeData.experienceSections
+              .flatMap((section) => {
+                if (section?.displayType !== "products") return [];
+                const ids = section?.config?.products?.productIds;
+                return Array.isArray(ids) ? ids : [];
+              })
+              .map((id) => String(id || "").trim())
+              .filter(Boolean),
+          ),
+        );
+
+        if (selectedProductIds.length > 0) {
+          const existingIds = new Set(
+            nextHomeData.products.map((p) =>
+              String(p?._id || p?.id || "").trim(),
+            ),
+          );
+          const missingIds = selectedProductIds.filter(
+            (id) => !existingIds.has(id),
+          );
+
+          if (missingIds.length > 0) {
+            const locationParams = hasValidLocation
+              ? { lat: currentLocation.latitude, lng: currentLocation.longitude }
+              : undefined;
+
+            const missingResults = await Promise.allSettled(
+              missingIds.map((id) => customerApi.getProductById(id, locationParams)),
+            );
+
+            const fetchedMissing = missingResults
+              .filter((result) => result.status === "fulfilled")
+              .flatMap((result) => {
+                const payload = result.value?.data;
+                const rawProduct =
+                  payload?.result ||
+                  payload?.results ||
+                  payload?.product ||
+                  null;
+                if (!rawProduct) return [];
+                return Array.isArray(rawProduct) ? rawProduct : [rawProduct];
+              })
+              .filter(Boolean)
+              .map((p) => ({
+                ...p,
+                id: p._id,
+                image:
+                  p.mainImage ||
+                  p.image ||
+                  "https://images.unsplash.com/photo-1550989460-0adf9ea622e2?auto=format&fit=crop&q=80&w=400&h=400",
+                price: p.salePrice || p.price,
+                originalPrice: p.price,
+                weight: p.weight || "1 unit",
+                deliveryTime: "8-15 mins",
+              }));
+
+            if (fetchedMissing.length > 0) {
+              const merged = [...nextHomeData.products];
+              const mergedIds = new Set(
+                merged.map((p) => String(p?._id || p?.id || "").trim()),
+              );
+              fetchedMissing.forEach((p) => {
+                const key = String(p?._id || p?.id || "").trim();
+                if (!key || mergedIds.has(key)) return;
+                merged.push(p);
+                mergedIds.add(key);
+              });
+              nextHomeData.products = merged;
+            }
+          }
+        }
       }
 
       const sectionsList =
@@ -776,6 +857,83 @@ const Home = () => {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const hydrateSelectedSectionProducts = async (sections = []) => {
+    const selectedProductIds = Array.from(
+      new Set(
+        (Array.isArray(sections) ? sections : [])
+          .flatMap((section) => {
+            if (section?.displayType !== "products") return [];
+            const ids = section?.config?.products?.productIds;
+            return Array.isArray(ids) ? ids : [];
+          })
+          .map((id) => String(id || "").trim())
+          .filter(Boolean),
+      ),
+    );
+
+    if (!selectedProductIds.length) return;
+
+    const existingIds = new Set(
+      (productsRef.current || []).map((p) => String(p?._id || p?.id || "").trim()),
+    );
+    const missingIds = selectedProductIds.filter((id) => !existingIds.has(id));
+    if (!missingIds.length) return;
+
+    const hasValidLocation =
+      Number.isFinite(currentLocation?.latitude) &&
+      Number.isFinite(currentLocation?.longitude);
+    const locationParams = hasValidLocation
+      ? { lat: currentLocation.latitude, lng: currentLocation.longitude }
+      : undefined;
+
+    const missingResults = await Promise.allSettled(
+      missingIds.map((id) => customerApi.getProductById(id, locationParams)),
+    );
+
+    const fetchedMissing = missingResults
+      .filter((result) => result.status === "fulfilled")
+      .flatMap((result) => {
+        const payload = result.value?.data;
+        const rawProduct =
+          payload?.result ||
+          payload?.results ||
+          payload?.product ||
+          payload?.item ||
+          null;
+        if (!rawProduct) return [];
+        return Array.isArray(rawProduct) ? rawProduct : [rawProduct];
+      })
+      .filter(Boolean)
+      .map((p) => ({
+        ...p,
+        id: p._id || p.id,
+        image:
+          p.mainImage ||
+          p.image ||
+          "https://images.unsplash.com/photo-1550989460-0adf9ea622e2?auto=format&fit=crop&q=80&w=400&h=400",
+        price: p.salePrice || p.price,
+        originalPrice: p.price,
+        weight: p.weight || "1 unit",
+        deliveryTime: "8-15 mins",
+      }));
+
+    if (!fetchedMissing.length) return;
+
+    setProducts((prev) => {
+      const merged = [...(Array.isArray(prev) ? prev : [])];
+      const mergedIds = new Set(
+        merged.map((p) => String(p?._id || p?.id || "").trim()),
+      );
+      fetchedMissing.forEach((p) => {
+        const key = String(p?._id || p?.id || "").trim();
+        if (!key || mergedIds.has(key)) return;
+        merged.push(p);
+        mergedIds.add(key);
+      });
+      return merged;
+    });
   };
 
   // Initial data fetch: Consolidate storage check and API calls to prevent double fetching
@@ -810,6 +968,7 @@ const Home = () => {
           const sections = Array.isArray(raw) ? raw : [];
           headerSectionsCache.current[cacheKey] = sections;
           setHeaderSections(sections);
+          await hydrateSelectedSectionProducts(sections);
         } else {
           setHeaderSections([]);
         }
