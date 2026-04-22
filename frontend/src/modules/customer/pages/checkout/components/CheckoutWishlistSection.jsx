@@ -23,7 +23,7 @@ const CheckoutWishlistSection = React.memo(function CheckoutWishlistSection({
         {visibleItems.map((item) => (
           <div
             key={`${item.id}::${String(item.variantSku || "").trim()}`}
-            className="flex-shrink-0 w-[104px] sm:w-[112px] md:w-[140px] snap-start">
+            className="flex-shrink-0 w-[126px] sm:w-[136px] md:w-[160px] snap-start">
             <ProductCard product={item} compact={true} />
           </div>
         ))}

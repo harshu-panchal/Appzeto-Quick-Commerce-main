@@ -1428,7 +1428,7 @@ const Home = () => {
 	                  {products.slice(0, 12).map((product) => (
 	                    <div
 	                      key={product.id}
-	                      className="w-[104px] sm:w-[112px] md:w-[124px] shrink-0 snap-start">
+	                      className="w-[126px] sm:w-[136px] md:w-[148px] shrink-0 snap-start">
 	                      <ProductCard
 	                        product={product}
 	                        className="bg-white shadow-[0_8px_20px_-8px_rgba(0,0,0,0.1)] md:shadow-[0_15px_30px_rgba(0,0,0,0.05)] border-brand-50/50 md:border-slate-100 transition-all"
@@ -1570,7 +1570,7 @@ const Home = () => {
 	                            sectionProducts.map((product) => (
 	                              <div
 	                                key={product.id}
-	                                className="w-[104px] sm:w-[112px] md:w-[124px] flex-shrink-0 snap-start">
+	                                className="w-[126px] sm:w-[136px] md:w-[148px] flex-shrink-0 snap-start">
 	                                <ProductCard
 	                                  product={product}
 	                                  className="bg-white border border-slate-100 shadow-[0_10px_24px_rgba(15,23,42,0.08)]"

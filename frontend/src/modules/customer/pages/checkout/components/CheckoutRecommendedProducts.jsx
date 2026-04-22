@@ -22,7 +22,7 @@ const CheckoutRecommendedProducts = React.memo(function CheckoutRecommendedProdu
       </h3>
       <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar -mx-4 px-4 snap-x">
         {products.map((product) => (
-          <div key={product.id} className="flex-shrink-0 w-[104px] sm:w-[112px] md:w-[140px] snap-start">
+          <div key={product.id} className="flex-shrink-0 w-[126px] sm:w-[136px] md:w-[160px] snap-start">
             <ProductCard product={product} compact={true} />
           </div>
         ))}

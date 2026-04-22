@@ -314,7 +314,7 @@ const SectionRenderer = ({ sections = [], productsById = {}, categoriesById = {}
                   {items.map((product) => (
                     <div
                       key={product._id || product.id}
-                      className="w-[104px] sm:w-[112px] md:w-[124px] shrink-0"
+                      className="w-[126px] sm:w-[136px] md:w-[148px] shrink-0"
                     >
                       <ProductCard product={product} compact={true} neutralBg={true} />
                     </div>

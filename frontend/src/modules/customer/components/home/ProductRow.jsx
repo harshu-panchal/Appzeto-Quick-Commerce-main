@@ -27,7 +27,7 @@ const ProductRow = ({ title, subtitle, products, badge }) => {
 
                 <div className="flex gap-2 md:gap-6 overflow-x-auto pb-1.5 scrollbar-hide -mx-4 px-4 md:mx-0 md:px-0 scroll-smooth snap-x">
                     {products.map((product) => (
-                        <div key={product.id} className="min-w-[104px] sm:min-w-[112px] md:min-w-[220px] snap-start">
+                        <div key={product.id} className="min-w-[126px] sm:min-w-[136px] md:min-w-[220px] snap-start">
                             <ProductCard product={product} compact={true} />
                         </div>
                     ))}

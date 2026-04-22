@@ -264,7 +264,7 @@ const ShopByStorePage = () => {
 	            activeProducts.map((product) => (
 	              <div
 	                key={product.id}
-	                className="w-[104px] sm:w-[112px] md:w-[148px] flex-shrink-0 snap-start"
+	                className="w-[126px] sm:w-[136px] md:w-[170px] flex-shrink-0 snap-start"
 	              >
 	                <ProductCard
 	                  product={product}
