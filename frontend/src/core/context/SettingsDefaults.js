@@ -38,6 +38,11 @@ export const DEFAULT_SETTINGS = {
   handlingFeeStrategy: "highest_category_fee",
   codEnabled: true,
   onlineEnabled: true,
+  lowStockAlertsEnabled: true,
+  productApproval: {
+    sellerCreateRequiresApproval: false,
+    sellerEditRequiresApproval: false,
+  },
 };
 
 /**

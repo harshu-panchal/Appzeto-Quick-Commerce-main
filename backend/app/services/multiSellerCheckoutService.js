@@ -3,6 +3,10 @@ import Order from "../models/order.js";
 import Product from "../models/product.js";
 import * as logger from "./logger.js";
 import { buildCheckoutGroupId } from "./orderIdService.js";
+import {
+  PRODUCT_APPROVAL_STATUS,
+  resolveProductApprovalStatus,
+} from "./productModerationService.js";
 
 /**
  * Multi-Seller Checkout Service
@@ -168,6 +172,14 @@ export async function createSellerOrdersAtomic(checkoutGroupId, sellerGroups, co
         if (!product) {
           throw new Error(`Product ${item.product._id} not found`);
         }
+
+        if (product.status !== "active") {
+          throw new Error(`Product ${product.name} is not active`);
+        }
+
+        if (resolveProductApprovalStatus(product) !== PRODUCT_APPROVAL_STATUS.APPROVED) {
+          throw new Error(`Product ${product.name} is not approved`);
+        }
         
         if (product.stock < item.quantity) {
           throw new Error(
@@ -245,6 +257,12 @@ export async function processMultiSellerCheckout(params) {
         const product = await Product.findById(item.productId || item.product);
         if (!product) {
           throw new Error(`Product ${item.productId || item.product} not found`);
+        }
+        if (product.status !== "active") {
+          throw new Error(`Product ${product.name} is not active`);
+        }
+        if (resolveProductApprovalStatus(product) !== PRODUCT_APPROVAL_STATUS.APPROVED) {
+          throw new Error(`Product ${product.name} is not approved`);
         }
         return {
           product: {

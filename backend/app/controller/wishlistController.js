@@ -1,5 +1,40 @@
 import Wishlist from "../models/wishlist.js";
+import Product from "../models/product.js";
 import handleResponse from "../utils/helper.js";
+import { getApprovedOrLegacyFilter } from "../services/productModerationService.js";
+
+const CUSTOMER_VISIBLE_PRODUCT_MATCH = {
+  status: "active",
+  ...getApprovedOrLegacyFilter(),
+};
+
+function sanitizeWishlist(wishlist) {
+  if (!wishlist || !Array.isArray(wishlist.products)) return wishlist;
+  wishlist.products = wishlist.products.filter((item) => Boolean(item));
+  return wishlist;
+}
+
+async function findCustomerVisibleProductById(productId) {
+  if (!productId) return null;
+  return Product.findOne({
+    _id: productId,
+    ...CUSTOMER_VISIBLE_PRODUCT_MATCH,
+  })
+    .select("_id")
+    .lean();
+}
+
+async function fetchPopulatedWishlist(wishlistId) {
+  const wishlist = await Wishlist.findById(wishlistId)
+    .populate({
+      path: "products",
+      select: "name slug price salePrice mainImage stock status approvalStatus",
+      match: CUSTOMER_VISIBLE_PRODUCT_MATCH,
+    })
+    .lean();
+
+  return sanitizeWishlist(wishlist);
+}
 
 /* ===============================
    GET CUSTOMER WISHLIST
@@ -14,17 +49,26 @@ export const getWishlist = async (req, res) => {
     if (idsOnly === "true") {
       // Only select the products array (which contains IDs)
       const wishlist = await query.select("products").lean();
+      const rawIds = Array.isArray(wishlist?.products) ? wishlist.products : [];
+      const visibleProducts = await Product.find({
+        _id: { $in: rawIds },
+        ...CUSTOMER_VISIBLE_PRODUCT_MATCH,
+      })
+        .select("_id")
+        .lean();
+      const visibleIds = visibleProducts.map((product) => String(product._id));
       return handleResponse(
         res,
         200,
         "Wishlist IDs fetched",
-        wishlist || { products: [] },
+        { products: visibleIds },
       );
     }
 
-    const wishlist = await query
-      .populate("products", "name slug price salePrice mainImage stock status")
-      .lean();
+    const wishlistDoc = await query.select("_id").lean();
+    const wishlist = wishlistDoc?._id
+      ? await fetchPopulatedWishlist(wishlistDoc._id)
+      : null;
 
     if (!wishlist) {
       const newWishlist = await Wishlist.create({ customerId, products: [] });
@@ -49,6 +93,10 @@ export const addToWishlist = async (req, res) => {
   try {
     const customerId = req.user.id;
     const { productId } = req.body;
+    const product = await findCustomerVisibleProductById(productId);
+    if (!product) {
+      return handleResponse(res, 404, "Product is not available for wishlist");
+    }
 
     let wishlist = await Wishlist.findOne({ customerId });
 
@@ -61,9 +109,7 @@ export const addToWishlist = async (req, res) => {
     }
 
     await wishlist.save();
-    const updatedWishlist = await Wishlist.findById(wishlist._id)
-      .populate("products", "name slug price salePrice mainImage stock status")
-      .lean();
+    const updatedWishlist = await fetchPopulatedWishlist(wishlist._id);
 
     return handleResponse(
       res,
@@ -95,9 +141,7 @@ export const removeFromWishlist = async (req, res) => {
     );
 
     await wishlist.save();
-    const updatedWishlist = await Wishlist.findById(wishlist._id)
-      .populate("products", "name slug price salePrice mainImage stock status")
-      .lean();
+    const updatedWishlist = await fetchPopulatedWishlist(wishlist._id);
 
     return handleResponse(
       res,
@@ -117,6 +161,7 @@ export const toggleWishlist = async (req, res) => {
   try {
     const customerId = req.user.id;
     const { productId } = req.body;
+    const product = await findCustomerVisibleProductById(productId);
 
     let wishlist = await Wishlist.findOne({ customerId });
 
@@ -131,14 +176,15 @@ export const toggleWishlist = async (req, res) => {
       wishlist.products.splice(index, 1);
       message = "Product removed from wishlist";
     } else {
+      if (!product) {
+        return handleResponse(res, 404, "Product is not available for wishlist");
+      }
       wishlist.products.push(productId);
       message = "Product added to wishlist";
     }
 
     await wishlist.save();
-    const updatedWishlist = await Wishlist.findById(wishlist._id)
-      .populate("products", "name slug price salePrice mainImage stock status")
-      .lean();
+    const updatedWishlist = await fetchPopulatedWishlist(wishlist._id);
 
     return handleResponse(res, 200, message, updatedWishlist);
   } catch (error) {

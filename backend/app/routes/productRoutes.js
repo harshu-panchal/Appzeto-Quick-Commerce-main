@@ -5,7 +5,10 @@ import {
     createProduct,
     updateProduct,
     deleteProduct,
-    getProductById
+    getProductById,
+    getModerationProducts,
+    approveProduct,
+    rejectProduct,
 } from "../controller/productController.js";
 import { adjustStock, getStockHistory } from "../controller/stockController.js";
 import {
@@ -28,12 +31,15 @@ router.get("/", optionalVerifyToken, getProducts);
 router.get("/seller/me", verifyToken, allowRoles("seller"), requireApprovedSeller, getSellerProducts);
 router.get("/stock-history", verifyToken, allowRoles("seller"), requireApprovedSeller, getStockHistory);
 router.post("/adjust-stock", verifyToken, allowRoles("seller"), requireApprovedSeller, adjustStock);
+router.get("/moderation", verifyToken, allowRoles("admin"), getModerationProducts);
+router.patch("/moderation/:id/approve", verifyToken, allowRoles("admin"), approveProduct);
+router.patch("/moderation/:id/reject", verifyToken, allowRoles("admin"), rejectProduct);
 router.get("/:id", optionalVerifyToken, getProductById);
 
 router.post(
     "/",
     verifyToken,
-    allowRoles("seller"),
+    allowRoles("seller", "admin"),
     requireApprovedSeller,
     upload.any(),
     createProduct

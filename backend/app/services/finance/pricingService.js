@@ -1,6 +1,10 @@
 import Product from "../../models/product.js";
 import Category from "../../models/category.js";
 import {
+  PRODUCT_APPROVAL_STATUS,
+  resolveProductApprovalStatus,
+} from "../productModerationService.js";
+import {
   COMMISSION_FIXED_RULE,
   COMMISSION_TYPE,
   DELIVERY_PRICING_MODE,
@@ -316,7 +320,7 @@ export async function hydrateOrderItems(
     .filter(Boolean);
 
   const productQuery = Product.find({ _id: { $in: productIds } })
-    .select("_id name salePrice price mainImage headerId sellerId status variants")
+    .select("_id name salePrice price mainImage headerId sellerId status approvalStatus variants")
     .lean();
   if (session) productQuery.session(session);
   const products = await productQuery;
@@ -331,6 +335,9 @@ export async function hydrateOrderItems(
     }
     if (product.status !== "active") {
       throw new Error(`Product is not available for purchase: ${product.name}`);
+    }
+    if (resolveProductApprovalStatus(product) !== PRODUCT_APPROVAL_STATUS.APPROVED) {
+      throw new Error(`Product is not approved for purchase: ${product.name}`);
     }
 
     const rawVariantSku = String(item.variantSku || item.variantSlot || "").trim();

@@ -27,6 +27,14 @@ import { adminApi } from '../services/adminApi';
 import { useSettings } from '@core/context/SettingsContext';
 
 const AdminSettings = () => {
+    const normalizeProductApprovalConfig = (raw) => {
+        const config = raw?.productApproval || raw || {};
+        return {
+            sellerCreateRequiresApproval: Boolean(config.sellerCreateRequiresApproval),
+            sellerEditRequiresApproval: Boolean(config.sellerEditRequiresApproval),
+        };
+    };
+
     const { refetch } = useSettings();
     const { showToast } = useToast();
     const [isSaving, setIsSaving] = useState(false);
@@ -64,6 +72,10 @@ const AdminSettings = () => {
         keywords: [],
         returnDeliveryCommission: 0,
         lowStockAlertsEnabled: true,
+        productApproval: {
+            sellerCreateRequiresApproval: false,
+            sellerEditRequiresApproval: false,
+        },
     });
 
     useEffect(() => {
@@ -75,6 +87,7 @@ const AdminSettings = () => {
                     setSettings(prev => ({
                         ...prev,
                         ...data,
+                        productApproval: normalizeProductApprovalConfig(data || {}),
                         keywords: Array.isArray(data.keywords) ? data.keywords : (data.metaKeywords ? data.metaKeywords.split(',').map(k => k.trim()).filter(Boolean) : []),
                         returnDeliveryCommission: data.returnDeliveryCommission ?? 0,
                     }));
@@ -96,8 +109,17 @@ const AdminSettings = () => {
                 ...settings,
                 keywords: Array.isArray(settings.keywords) ? settings.keywords : (settings.metaKeywords ? settings.metaKeywords.split(',').map(k => k.trim()).filter(Boolean) : []),
             };
-            await adminApi.updateSettings(payload);
-            await refetch();
+            const res = await adminApi.updateSettings(payload);
+            const updatedData = res.data?.result ?? res.data;
+            
+            if (updatedData) {
+                setSettings(prev => ({
+                    ...prev,
+                    ...updatedData,
+                    productApproval: normalizeProductApprovalConfig(updatedData),
+                }));
+            }
+            await refetch({ forceRefresh: true });
             showToast('Settings updated successfully', 'success');
         } catch (error) {
             console.error("Failed to update settings", error);
@@ -109,6 +131,16 @@ const AdminSettings = () => {
 
     const handleInputChange = (field, value) => {
         setSettings(prev => ({ ...prev, [field]: value }));
+    };
+
+    const handleProductApprovalToggle = (field) => {
+        setSettings((prev) => ({
+            ...prev,
+            productApproval: {
+                ...(prev.productApproval || {}),
+                [field]: !Boolean(prev.productApproval?.[field]),
+            },
+        }));
     };
 
     const handleLogoUpload = async (e) => {
@@ -306,6 +338,56 @@ const AdminSettings = () => {
                                             className={cn(
                                                 "inline-block h-6 w-6 transform rounded-full bg-white shadow transition-transform duration-200",
                                                 settings.lowStockAlertsEnabled ? "translate-x-7" : "translate-x-1"
+                                            )}
+                                        />
+                                    </button>
+                                </div>
+                                <div className="md:col-span-2 rounded-2xl bg-slate-50 border border-slate-200 px-5 py-4 flex items-center justify-between gap-4">
+                                    <div>
+                                        <p className="text-sm font-black text-slate-900">Require approval for new seller products</p>
+                                        <p className="text-xs font-bold text-slate-500 mt-1">
+                                            When enabled, newly added seller products remain hidden until approved by admin.
+                                        </p>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        role="switch"
+                                        aria-checked={Boolean(settings.productApproval?.sellerCreateRequiresApproval)}
+                                        onClick={() => handleProductApprovalToggle('sellerCreateRequiresApproval')}
+                                        className={cn(
+                                            "relative inline-flex h-7 w-14 items-center rounded-full transition-colors duration-200",
+                                            settings.productApproval?.sellerCreateRequiresApproval ? "bg-emerald-500" : "bg-slate-300"
+                                        )}
+                                    >
+                                        <span
+                                            className={cn(
+                                                "inline-block h-6 w-6 transform rounded-full bg-white shadow transition-transform duration-200",
+                                                settings.productApproval?.sellerCreateRequiresApproval ? "translate-x-7" : "translate-x-1"
+                                            )}
+                                        />
+                                    </button>
+                                </div>
+                                <div className="md:col-span-2 rounded-2xl bg-slate-50 border border-slate-200 px-5 py-4 flex items-center justify-between gap-4">
+                                    <div>
+                                        <p className="text-sm font-black text-slate-900">Require approval for seller product edits</p>
+                                        <p className="text-xs font-bold text-slate-500 mt-1">
+                                            When enabled, seller changes to existing products remain hidden until approved by admin.
+                                        </p>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        role="switch"
+                                        aria-checked={Boolean(settings.productApproval?.sellerEditRequiresApproval)}
+                                        onClick={() => handleProductApprovalToggle('sellerEditRequiresApproval')}
+                                        className={cn(
+                                            "relative inline-flex h-7 w-14 items-center rounded-full transition-colors duration-200",
+                                            settings.productApproval?.sellerEditRequiresApproval ? "bg-emerald-500" : "bg-slate-300"
+                                        )}
+                                    >
+                                        <span
+                                            className={cn(
+                                                "inline-block h-6 w-6 transform rounded-full bg-white shadow transition-transform duration-200",
+                                                settings.productApproval?.sellerEditRequiresApproval ? "translate-x-7" : "translate-x-1"
                                             )}
                                         />
                                     </button>

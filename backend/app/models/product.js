@@ -85,6 +85,34 @@ const productSchema = new mongoose.Schema(
             enum: ["active", "inactive"],
             default: "active",
         },
+        approvalStatus: {
+            type: String,
+            enum: ["pending", "approved", "rejected"],
+            default: "approved",
+        },
+        approvalRequestedAt: {
+            type: Date,
+            default: null,
+        },
+        approvalReviewedAt: {
+            type: Date,
+            default: null,
+        },
+        approvalReviewedBy: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Admin",
+            default: null,
+        },
+        approvalNote: {
+            type: String,
+            trim: true,
+            default: "",
+        },
+        lastSubmittedByRole: {
+            type: String,
+            enum: ["seller", "admin"],
+            default: null,
+        },
         variants: [
             {
                 name: String,
@@ -105,10 +133,12 @@ const productSchema = new mongoose.Schema(
 // Optimize performance for common queries on home/search pages
 productSchema.index({ status: 1, isFeatured: 1, createdAt: -1 });
 productSchema.index({ status: 1, createdAt: -1, _id: -1 });
+productSchema.index({ approvalStatus: 1, status: 1, createdAt: -1 });
 productSchema.index({ headerId: 1, status: 1 });
 productSchema.index({ categoryId: 1, status: 1 });
 productSchema.index({ subcategoryId: 1, status: 1 });
 productSchema.index({ sellerId: 1, status: 1 });
+productSchema.index({ sellerId: 1, approvalStatus: 1, createdAt: -1 });
 productSchema.index({ sellerId: 1, createdAt: -1, _id: -1 });
 productSchema.index({ name: "text", tags: "text" }); // For better search if regex is too slow
 

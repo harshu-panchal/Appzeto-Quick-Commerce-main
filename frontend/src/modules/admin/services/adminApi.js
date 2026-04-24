@@ -43,6 +43,9 @@ export const adminApi = {
 
     // Product Management
     getProducts: (params) => axiosInstance.get('/products', { params }),
+    getProductModerationList: (params) => axiosInstance.get('/products/moderation', { params }),
+    approveProductModeration: (id, data = {}) => axiosInstance.patch(`/products/moderation/${id}/approve`, data),
+    rejectProductModeration: (id, data = {}) => axiosInstance.patch(`/products/moderation/${id}/reject`, data),
     createProduct: (formData) => axiosInstance.post('/products', formData),
     updateProduct: (id, formData) => axiosInstance.put(`/products/${id}`, formData),
     deleteProduct: (id) => axiosInstance.delete(`/products/${id}`),

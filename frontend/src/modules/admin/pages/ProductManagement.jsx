@@ -39,11 +39,22 @@ const ProductManagement = () => {
     const [searchTerm, setSearchTerm] = useState('');
     const [filterCategory, setFilterCategory] = useState('all');
     const [filterStatus, setFilterStatus] = useState('all'); // Added filterStatus
+    const [filterApprovalStatus, setFilterApprovalStatus] = useState('all');
     const [sortBy, setSortBy] = useState('newest');
+    const [moderationCounts, setModerationCounts] = useState({
+        all: 0,
+        pending: 0,
+        approved: 0,
+        rejected: 0,
+    });
+    const [moderatingActionId, setModeratingActionId] = useState('');
 
     const [isProductModalOpen, setIsProductModalOpen] = useState(false);
     const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+    const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
     const [itemToDelete, setItemToDelete] = useState(null);
+    const [itemToReject, setItemToReject] = useState(null);
+    const [rejectionNote, setRejectionNote] = useState('');
     const [editingItem, setEditingItem] = useState(null);
     const [modalTab, setModalTab] = useState('general');
 
@@ -93,15 +104,22 @@ const ProductManagement = () => {
             if (searchTerm) params.search = searchTerm;
             if (filterCategory !== 'all') params.category = filterCategory;
             if (filterStatus !== 'all') params.status = filterStatus;
+            if (filterApprovalStatus !== 'all') params.approvalStatus = filterApprovalStatus;
             if (sortBy) params.sort = sortBy;
 
-            const response = await adminApi.getProducts(params);
+            const response = await adminApi.getProductModerationList(params);
             if (response.data.success) {
                 const payload = response.data.result || {};
                 const list = Array.isArray(payload.items) ? payload.items : (response.data.results || []);
                 setProducts(list);
                 setTotal(typeof payload.total === 'number' ? payload.total : list.length);
                 setPage(typeof payload.page === 'number' ? payload.page : requestedPage);
+                setModerationCounts({
+                    all: Number(payload?.counts?.all || 0),
+                    pending: Number(payload?.counts?.pending || 0),
+                    approved: Number(payload?.counts?.approved || 0),
+                    rejected: Number(payload?.counts?.rejected || 0),
+                });
             }
         } catch (error) {
             toast.error('Failed to fetch products');
@@ -119,7 +137,7 @@ const ProductManagement = () => {
             fetchProducts(1);
         }, 500); // Debounce search
         return () => clearTimeout(timer);
-    }, [searchTerm, filterCategory, filterStatus, sortBy, pageSize]);
+    }, [searchTerm, filterCategory, filterStatus, filterApprovalStatus, sortBy, pageSize]);
 
     const handleSave = async () => {
         if (!editingItem) {
@@ -179,6 +197,53 @@ const ProductManagement = () => {
         } catch (error) {
             toast.error('Failed to delete product');
         }
+    };
+
+    const submitModerationAction = async (product, action, approvalNote = '') => {
+        if (!product?._id) return;
+
+        const actionKey = `${action}:${product._id}`;
+        setModeratingActionId(actionKey);
+        try {
+            if (action === 'approve') {
+                const res = await adminApi.approveProductModeration(product._id, { approvalNote });
+                toast.success(res?.data?.message || 'Product approved successfully');
+            } else {
+                const res = await adminApi.rejectProductModeration(product._id, { approvalNote });
+                toast.success(res?.data?.message || 'Product rejected successfully');
+            }
+            fetchProducts(page);
+        } catch (error) {
+            toast.error(error.response?.data?.message || 'Failed to update product approval status');
+        } finally {
+            setModeratingActionId('');
+        }
+    };
+
+    const handleModerationAction = async (product, action) => {
+        if (!product?._id) return;
+
+        if (action === 'reject') {
+            setItemToReject(product);
+            setRejectionNote(product.approvalNote || '');
+            setIsRejectModalOpen(true);
+            return;
+        }
+
+        submitModerationAction(product, action);
+    };
+
+    const confirmReject = async () => {
+        const note = rejectionNote.trim();
+        if (!note) {
+            toast.error('Please enter a rejection reason');
+            return;
+        }
+
+        await submitModerationAction(itemToReject, 'reject', note);
+        setIsRejectModalOpen(false);
+        setItemToReject(null);
+        setRejectionNote('');
     };
 
     const handleImageUpload = (e, type) => {
@@ -285,6 +350,17 @@ const ProductManagement = () => {
         return <Badge variant="gray" className="text-[10px] px-1.5 py-0">Draft</Badge>;
     };
 
+    const ApprovalBadge = ({ approvalStatus }) => {
+        const normalized = String(approvalStatus || 'approved').toLowerCase();
+        if (normalized === 'pending') {
+            return <Badge variant="warning" className="text-[10px] px-1.5 py-0">Pending</Badge>;
+        }
+        if (normalized === 'rejected') {
+            return <Badge variant="error" className="text-[10px] px-1.5 py-0">Rejected</Badge>;
+        }
+        return <Badge variant="success" className="text-[10px] px-1.5 py-0">Approved</Badge>;
+    };
+
     return (
         <div className="ds-section-spacing animate-in fade-in slide-in-from-bottom-2 duration-700 pb-16">
             {/* Page Header */}
@@ -319,6 +395,31 @@ const ProductManagement = () => {
                     </Card>
                 ))}
             </div>
+
+            <Card className="border-none shadow-sm ring-1 ring-slate-100 p-3 bg-white/60 backdrop-blur-xl">
+                <div className="flex flex-wrap gap-2">
+                    {[
+                        { key: 'all', label: 'All', count: moderationCounts.all },
+                        { key: 'approved', label: 'Approved', count: moderationCounts.approved },
+                        { key: 'pending', label: 'Pending Approval', count: moderationCounts.pending },
+                        { key: 'rejected', label: 'Rejected', count: moderationCounts.rejected },
+                    ].map((item) => (
+                        <button
+                            key={item.key}
+                            type="button"
+                            onClick={() => setFilterApprovalStatus(item.key)}
+                            className={cn(
+                                "rounded-xl px-4 py-2 text-xs font-bold transition-all",
+                                filterApprovalStatus === item.key
+                                    ? "bg-slate-900 text-white"
+                                    : "bg-white ring-1 ring-slate-200 text-slate-600 hover:bg-slate-50"
+                            )}
+                        >
+                            {item.label} ({item.count})
+                        </button>
+                    ))}
+                </div>
+            </Card>
 
             {/* Toolbox */}
             <Card className="border-none shadow-sm ring-1 ring-slate-100 p-3 bg-white/60 backdrop-blur-xl">
@@ -389,15 +490,15 @@ const ProductManagement = () => {
             {/* Product Table */}
             <Card className="border-none shadow-xl ring-1 ring-slate-100 overflow-hidden rounded-xl">
                 <div className="overflow-x-auto">
-                    <table className="w-full table-fixed text-left border-collapse">
+                    <table className="w-full min-w-[1180px] table-fixed text-left border-collapse">
                         <colgroup>
-                            <col className="w-[28%]" />
-                            <col className="w-[14%]" />
-                            <col className="w-[12%]" />
+                            <col className="w-[24%]" />
                             <col className="w-[13%]" />
+                            <col className="w-[11%]" />
+                            <col className="w-[12%]" />
+                            <col className="w-[14%]" />
+                            <col className="w-[11%]" />
                             <col className="w-[15%]" />
-                            <col className="w-[8%]" />
-                            <col className="w-[10%]" />
                         </colgroup>
                         <thead>
                             <tr className="bg-slate-50/50 border-b border-slate-100">
@@ -406,8 +507,8 @@ const ProductManagement = () => {
                                 <th className="px-6 py-3 text-left text-[10px] font-medium text-slate-500 uppercase tracking-[0.18em]">Variant</th>
                                 <th className="px-6 py-3 text-left text-[10px] font-medium text-slate-500 uppercase tracking-[0.18em]">Category</th>
                                 <th className="px-6 py-3 text-left text-[10px] font-medium text-slate-500 uppercase tracking-[0.18em]">Subcategory</th>
-                                <th className="px-6 py-3 text-center text-[10px] font-medium text-slate-500 uppercase tracking-[0.18em] whitespace-nowrap">Status</th>
-                                <th className="px-6 py-3 text-right text-[10px] font-medium text-slate-500 uppercase tracking-[0.18em] whitespace-nowrap">Actions</th>
+                                <th className="px-4 py-3 text-center text-[10px] font-medium text-slate-500 uppercase tracking-[0.18em] whitespace-nowrap">Status</th>
+                                <th className="px-4 py-3 text-center text-[10px] font-medium text-slate-500 uppercase tracking-[0.18em] whitespace-nowrap">Actions</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-50">
@@ -425,7 +526,13 @@ const ProductManagement = () => {
                                     <td colSpan="7" className="px-6 py-20 text-center text-slate-400 font-bold text-xs uppercase tracking-widest">No products found</td>
                                 </tr>
                             ) : productsList.map((p) => (
-                                <tr key={p._id} className="group transition-colors hover:bg-slate-50/60">
+                                <tr
+                                    key={p._id}
+                                    className={cn(
+                                        "group transition-colors hover:bg-slate-50/60",
+                                        String(p.approvalStatus || '').toLowerCase() === 'pending' && "bg-amber-50/40"
+                                    )}
+                                >
                                     {/* Product Column */}
                                     <td className="px-6 py-5 align-middle">
                                         <div className="flex items-center gap-3 min-w-0">
@@ -435,6 +542,11 @@ const ProductManagement = () => {
                                             <div className="min-w-0">
                                                 <p className="truncate text-[13px] font-semibold leading-5 text-slate-900" title={p.name}>{p.name}</p>
                                                 <p className="truncate text-[10px] font-medium uppercase tracking-widest text-slate-400" title={p.unit}>{p.unit}</p>
+                                                {p.approvalStatus === 'rejected' && p.approvalNote ? (
+                                                    <p className="truncate text-[10px] font-medium text-rose-500" title={p.approvalNote}>
+                                                        Note: {p.approvalNote}
+                                                    </p>
+                                                ) : null}
                                             </div>
                                         </div>
                                     </td>
@@ -492,22 +604,41 @@ const ProductManagement = () => {
 
 
                                     {/* Status Column */}
-                                    <td className="px-6 py-5 text-center align-middle whitespace-nowrap min-w-[92px]">
-                                        <StatusBadge status={p.status} stock={p.stock} />
+                                    <td className="px-4 py-5 text-center align-middle whitespace-nowrap">
+                                        <div className="flex flex-col items-center gap-1">
+                                            <StatusBadge status={p.status} stock={p.stock} />
+                                            <ApprovalBadge approvalStatus={p.approvalStatus} />
+                                        </div>
                                     </td>
 
                                     {/* Actions Column */}
-                                    <td className="px-6 py-5 text-right align-middle min-w-[108px]">
-                                        <div className="flex items-center justify-end space-x-2 shrink-0">
+                                    <td className="px-4 py-5 text-center align-middle">
+                                        <div className="flex items-center justify-center gap-2">
+                                            <button
+                                                onClick={() => handleModerationAction(p, 'approve')}
+                                                disabled={moderatingActionId === `approve:${p._id}`}
+                                                className="flex h-9 w-9 shrink-0 items-center justify-center hover:bg-emerald-50 hover:text-emerald-600 rounded-xl transition-all text-slate-400 shadow-sm ring-1 ring-slate-100 disabled:opacity-60"
+                                                title="Approve product"
+                                            >
+                                                <HiOutlineCheckCircle className="h-4 w-4" />
+                                            </button>
+                                            <button
+                                                onClick={() => handleModerationAction(p, 'reject')}
+                                                disabled={moderatingActionId === `reject:${p._id}`}
+                                                className="flex h-9 w-9 shrink-0 items-center justify-center hover:bg-amber-50 hover:text-amber-600 rounded-xl transition-all text-slate-400 shadow-sm ring-1 ring-slate-100 disabled:opacity-60"
+                                                title="Reject product"
+                                            >
+                                                <HiOutlineXMark className="h-4 w-4" />
+                                            </button>
                                             <button
                                                 onClick={() => openModal(p)}
-                                                className="p-2 hover:bg-white hover:text-primary rounded-xl transition-all text-slate-400 shadow-sm ring-1 ring-slate-100"
+                                                className="flex h-9 w-9 shrink-0 items-center justify-center hover:bg-white hover:text-primary rounded-xl transition-all text-slate-400 shadow-sm ring-1 ring-slate-100"
                                             >
                                                 <HiOutlinePencilSquare className="h-4 w-4" />
                                             </button>
                                             <button
                                                 onClick={() => (setItemToDelete(p), setIsDeleteModalOpen(true))}
-                                                className="p-2 hover:bg-rose-50 hover:text-rose-600 rounded-xl transition-all text-slate-400 shadow-sm ring-1 ring-slate-100"
+                                                className="flex h-9 w-9 shrink-0 items-center justify-center hover:bg-rose-50 hover:text-rose-600 rounded-xl transition-all text-slate-400 shadow-sm ring-1 ring-slate-100"
                                             >
                                                 <HiOutlineTrash className="h-4 w-4" />
                                             </button>
@@ -924,6 +1055,67 @@ const ProductManagement = () => {
                     </div>
                 )}
             </AnimatePresence>
+
+            <Modal
+                isOpen={isRejectModalOpen}
+                onClose={() => {
+                    if (moderatingActionId === `reject:${itemToReject?._id}`) return;
+                    setIsRejectModalOpen(false);
+                    setItemToReject(null);
+                    setRejectionNote('');
+                }}
+                title="Reject Product"
+                size="sm"
+                footer={
+                    <>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setIsRejectModalOpen(false);
+                                setItemToReject(null);
+                                setRejectionNote('');
+                            }}
+                            disabled={moderatingActionId === `reject:${itemToReject?._id}`}
+                            className="px-4 py-2 text-xs font-bold text-slate-500 hover:text-slate-700 transition-colors disabled:opacity-50"
+                        >
+                            CANCEL
+                        </button>
+                        <button
+                            type="button"
+                            onClick={confirmReject}
+                            disabled={moderatingActionId === `reject:${itemToReject?._id}`}
+                            className="px-6 py-2 bg-rose-600 text-white rounded-xl text-xs font-bold shadow-lg shadow-rose-100 hover:bg-rose-700 transition-all active:scale-95 disabled:opacity-50"
+                        >
+                            {moderatingActionId === `reject:${itemToReject?._id}` ? 'REJECTING...' : 'REJECT PRODUCT'}
+                        </button>
+                    </>
+                }
+            >
+                <div className="space-y-5 py-2">
+                    <div className="rounded-2xl bg-rose-50 border border-rose-100 px-4 py-3">
+                        <p className="text-xs font-black text-slate-900 line-clamp-2">
+                            {itemToReject?.name || 'Selected product'}
+                        </p>
+                        <p className="mt-1 text-[10px] font-bold uppercase tracking-widest text-rose-500">
+                            Rejection reason required
+                        </p>
+                    </div>
+                    <div className="space-y-2">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                            Reason for seller
+                        </label>
+                        <textarea
+                            value={rejectionNote}
+                            onChange={(e) => setRejectionNote(e.target.value)}
+                            rows={5}
+                            autoFocus
+                            placeholder="Tell the seller what needs to be fixed before resubmitting..."
+                            className="w-full resize-none rounded-2xl bg-slate-100 px-4 py-3 text-sm font-semibold text-slate-800 outline-none transition-all focus:ring-2 focus:ring-rose-100"
+                        />
+                    </div>
+                </div>
+            </Modal>
+
             {/* Delete Confirmation Modal */}
             <Modal
                 isOpen={isDeleteModalOpen}

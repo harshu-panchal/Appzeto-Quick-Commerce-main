@@ -46,7 +46,12 @@ const ProductManagement = () => {
   const fetchProducts = async (requestedPage = 1) => {
     setIsLoading(true);
     try {
-      const res = await sellerApi.getProducts({ page: requestedPage, limit: pageSize, sort: sortBy });
+      const res = await sellerApi.getProducts({
+        page: requestedPage,
+        limit: pageSize,
+        sort: sortBy,
+        approvalStatus: filterApproval,
+      });
       if (res.data.success) {
         // Backend returns handleResponse(..., { items, page, limit, total, totalPages })
         const payload = res.data.result || {};
@@ -108,6 +113,7 @@ const ProductManagement = () => {
 
   const [filterCategory, setFilterCategory] = useState("all");
   const [filterStatus, setFilterStatus] = useState("All");
+  const [filterApproval, setFilterApproval] = useState("all"); // all | approved | pending | rejected
   const [sortBy, setSortBy] = useState("newest");
   const [priceMin, setPriceMin] = useState("");
   const [priceMax, setPriceMax] = useState("");
@@ -178,7 +184,7 @@ const ProductManagement = () => {
 
   React.useEffect(() => {
     fetchProducts(1);
-  }, [searchTerm, filterCategory, filterStatus, sortBy, pageSize]);
+  }, [searchTerm, filterCategory, filterStatus, filterApproval, sortBy, pageSize]);
 
   const [formData, setFormData] = useState({
     name: "",
@@ -247,9 +253,30 @@ const ProductManagement = () => {
         matchesPrice = matchesPrice && effectivePrice <= max;
       }
 
-      return matchesSearch && matchesCategory && matchesStatus && matchesPrice;
+      const rawApproval = String(p.approvalStatus || "").trim().toLowerCase();
+      const normalizedApproval = rawApproval || "approved"; // legacy products without moderation fields are treated as approved
+      let matchesApproval = true;
+      if (filterApproval !== "all") {
+        matchesApproval = normalizedApproval === filterApproval;
+      }
+
+      return (
+        matchesSearch &&
+        matchesCategory &&
+        matchesStatus &&
+        matchesApproval &&
+        matchesPrice
+      );
     });
-  }, [safeProducts, searchTerm, filterCategory, filterStatus, priceMin, priceMax]);
+  }, [
+    safeProducts,
+    searchTerm,
+    filterCategory,
+    filterStatus,
+    filterApproval,
+    priceMin,
+    priceMax,
+  ]);
 
   const stats = useMemo(
     () => ({
@@ -268,6 +295,17 @@ const ProductManagement = () => {
     }),
     [safeProducts, summaryStats, total],
   );
+
+  const ApprovalBadge = ({ approvalStatus }) => {
+    const normalized = String(approvalStatus || "approved").toLowerCase();
+    if (normalized === "pending") {
+      return <Badge variant="warning" className="text-[10px] px-2 py-0.5">Pending Approval</Badge>;
+    }
+    if (normalized === "rejected") {
+      return <Badge variant="error" className="text-[10px] px-2 py-0.5">Rejected</Badge>;
+    }
+    return <Badge variant="success" className="text-[10px] px-2 py-0.5">Approved</Badge>;
+  };
 
   const handleSave = async () => {
     try {
@@ -301,11 +339,21 @@ const ProductManagement = () => {
       }
 
       if (editingItem) {
-        await sellerApi.updateProduct(editingItem._id || editingItem.id, data);
-        toast.success("Product updated successfully");
+        const response = await sellerApi.updateProduct(editingItem._id || editingItem.id, data);
+        const approvalStatus = response?.data?.result?.approvalStatus;
+        if (approvalStatus === "pending") {
+          toast.success("Product changes submitted for admin approval");
+        } else {
+          toast.success(response?.data?.message || "Product updated successfully");
+        }
       } else {
-        await sellerApi.createProduct(data);
-        toast.success("Product created successfully");
+        const response = await sellerApi.createProduct(data);
+        const approvalStatus = response?.data?.result?.approvalStatus;
+        if (approvalStatus === "pending") {
+          toast.success("Product submitted for admin approval");
+        } else {
+          toast.success(response?.data?.message || "Product created successfully");
+        }
       }
 
       setIsProductModalOpen(false);
@@ -544,6 +592,18 @@ const ProductManagement = () => {
                 </optgroup>
               ))}
             </select>
+            <select
+              value={filterApproval}
+              onChange={(e) => setFilterApproval(e.target.value)}
+              className="flex-1 lg:flex-none px-4 py-2.5 bg-white ring-1 ring-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:ring-2 focus:ring-primary/5 outline-none appearance-none cursor-pointer"
+              aria-label="Filter by approval status"
+              title="Approval"
+            >
+              <option value="all">All Approvals</option>
+              <option value="approved">Approved</option>
+              <option value="pending">Pending</option>
+              <option value="rejected">Rejected</option>
+            </select>
             <button
               onClick={() => setIsFilterOpen((prev) => !prev)}
               className="flex items-center space-x-2 px-4 py-2.5 bg-white ring-1 ring-slate-200 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 transition-all"
@@ -595,6 +655,9 @@ const ProductManagement = () => {
                 <th className="px-6 py-3 text-center text-[10px] font-semibold text-gray-600 uppercase tracking-wider">
                   Variant
                 </th>
+                <th className="px-6 py-3 text-center text-[10px] font-semibold text-gray-600 uppercase tracking-wider">
+                  Approval
+                </th>
                 <th className="px-6 py-3 text-right text-[10px] font-semibold text-gray-600 uppercase tracking-wider">
                   Actions
                 </th>
@@ -622,6 +685,16 @@ const ProductManagement = () => {
                         <p className="text-sm font-medium text-slate-900">
                           {p.name}
                         </p>
+                        {String(p.approvalStatus || "").toLowerCase() === "pending" ? (
+                          <p className="text-[10px] font-medium text-amber-600">
+                            Hidden from customers until admin approval.
+                          </p>
+                        ) : null}
+                        {String(p.approvalStatus || "").toLowerCase() === "rejected" ? (
+                          <p className="text-[10px] font-medium text-rose-600">
+                            {p.approvalNote ? `Rejected: ${p.approvalNote}` : "Rejected by admin. Update and resubmit."}
+                          </p>
+                        ) : null}
                       </div>
                     </div>
                   </td>
@@ -668,6 +741,20 @@ const ProductManagement = () => {
                         None
                       </span>
                     )}
+                  </td>
+                  <td className="px-6 py-4 text-center">
+                    <div className="flex flex-col items-center gap-1">
+                      <ApprovalBadge approvalStatus={p.approvalStatus} />
+                      {p.approvalReviewedAt ? (
+                        <span className="text-[10px] text-slate-400">
+                          Reviewed
+                        </span>
+                      ) : p.approvalRequestedAt ? (
+                        <span className="text-[10px] text-slate-400">
+                          Submitted
+                        </span>
+                      ) : null}
+                    </div>
                   </td>
                   <td className="px-6 py-4 text-right">
                     <div className="flex items-center justify-end space-x-2">
@@ -743,6 +830,7 @@ const ProductManagement = () => {
               onClick={() => {
                 setFilterCategory("all");
                 setFilterStatus("All");
+                setFilterApproval("all");
                 setPriceMin("");
                 setPriceMax("");
                 setSearchTerm("");

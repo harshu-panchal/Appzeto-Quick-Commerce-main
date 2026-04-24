@@ -5,6 +5,7 @@ import {
   getNearbySellerIdsForCustomer,
 } from "../services/customerVisibilityService.js";
 import { buildKey, getOrSet, getTTL } from "../services/cacheService.js";
+import { getApprovedOrLegacyFilter } from "../services/productModerationService.js";
 
 export const getPublicOfferSections = async (req, res) => {
   try {
@@ -38,10 +39,14 @@ export const getPublicOfferSections = async (req, res) => {
           .populate("categoryIds", "name slug image")
           .populate("categoryId", "name slug image")
           .populate("sellerIds", "shopName name logo")
-          .populate(
-            "productIds",
-            "name slug price salePrice mainImage stock unit sellerId",
-          )
+          .populate({
+            path: "productIds",
+            select: "name slug price salePrice mainImage stock unit sellerId status approvalStatus",
+            match: {
+              status: "active",
+              ...getApprovedOrLegacyFilter(),
+            },
+          })
           .lean();
 
         return sections.map((section) => {

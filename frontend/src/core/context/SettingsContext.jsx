@@ -18,12 +18,15 @@ export const SettingsProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const fetchSettings = useCallback(async () => {
+  const fetchSettings = useCallback(async (options = {}) => {
     try {
       setLoading(true);
       setError(null);
       // Use deduplicated fetch for app settings
-      const res = await getWithDedupe("/settings", {}, { ttl: 60 * 1000 });
+      const res = await getWithDedupe("/settings", {}, { 
+        ttl: 60 * 1000,
+        forceRefresh: options.forceRefresh || false 
+      });
       const data = res.data?.result || res.data;
       const merged = { ...DEFAULT_SETTINGS, ...data };
       setSettings(merged);

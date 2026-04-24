@@ -13,6 +13,15 @@ import {
 import { buildKey, getOrSet, getTTL, invalidate } from "../services/cacheService.js";
 import { uploadToCloudinary } from "../services/mediaService.js";
 import { resolveCategoryName, resolveSellerName } from "../services/entityNameCache.js";
+import {
+  PRODUCT_APPROVAL_STATUS,
+  getProductApprovalConfig,
+  getApprovedOrLegacyFilter,
+  buildApprovalStatusFilter,
+  normalizeProductModerationFields,
+  sanitizeApprovalNote,
+  resolveProductApprovalStatus,
+} from "../services/productModerationService.js";
 
 function buildProductListKey(queryParams) {
   const sorted = Object.keys(queryParams)
@@ -108,6 +117,77 @@ function applyMediaFields(productData) {
   }
 }
 
+const RESTRICTED_MODERATION_FIELDS = [
+  "approvalStatus",
+  "approvalRequestedAt",
+  "approvalReviewedAt",
+  "approvalReviewedBy",
+  "approvalNote",
+  "lastSubmittedByRole",
+];
+
+function stripRestrictedModerationFields(payload = {}) {
+  for (const field of RESTRICTED_MODERATION_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(payload, field)) {
+      delete payload[field];
+    }
+  }
+}
+
+function normalizeProductDocumentModeration(product) {
+  if (!product) return product;
+  return normalizeProductModerationFields(product);
+}
+
+function normalizeProductListModeration(items = []) {
+  if (!Array.isArray(items)) return [];
+  return items.map((item) => normalizeProductDocumentModeration(item));
+}
+
+function buildSellerPendingModerationUpdate() {
+  return {
+    approvalStatus: PRODUCT_APPROVAL_STATUS.PENDING,
+    approvalRequestedAt: new Date(),
+    approvalReviewedAt: null,
+    approvalReviewedBy: null,
+    approvalNote: "",
+    lastSubmittedByRole: "seller",
+  };
+}
+
+function buildSellerApprovedModerationUpdate() {
+  return {
+    approvalStatus: PRODUCT_APPROVAL_STATUS.APPROVED,
+    approvalRequestedAt: null,
+    approvalReviewedAt: null,
+    approvalReviewedBy: null,
+    approvalNote: "",
+    lastSubmittedByRole: "seller",
+  };
+}
+
+function buildAdminApprovedModerationUpdate(adminId, note = "") {
+  return {
+    approvalStatus: PRODUCT_APPROVAL_STATUS.APPROVED,
+    approvalRequestedAt: null,
+    approvalReviewedAt: new Date(),
+    approvalReviewedBy: adminId || null,
+    approvalNote: sanitizeApprovalNote(note),
+    lastSubmittedByRole: "admin",
+  };
+}
+
+function buildAdminRejectedModerationUpdate(adminId, note = "") {
+  return {
+    approvalStatus: PRODUCT_APPROVAL_STATUS.REJECTED,
+    approvalRequestedAt: null,
+    approvalReviewedAt: new Date(),
+    approvalReviewedBy: adminId || null,
+    approvalNote: sanitizeApprovalNote(note),
+    lastSubmittedByRole: "admin",
+  };
+}
+
 /* ===============================
    GET ALL PRODUCTS (Public/Admin)
 ================================ */
@@ -119,6 +199,7 @@ export const getProducts = async (req, res) => {
       subcategory,
       header,
       status,
+      approvalStatus,
       sellerId,
       featured,
       categoryId,
@@ -190,13 +271,6 @@ export const getProducts = async (req, res) => {
       query.sellerId = { $in: finalSellerIds };
     }
 
-    // Ensure we only show active products for public queries
-    if (!status && !req.user?.role) {
-      query.status = "active";
-    } else if (status) {
-      query.status = status;
-    }
-
     if (categoryIds && typeof categoryIds === "string") {
       const ids = categoryIds
         .split(",")
@@ -219,6 +293,22 @@ export const getProducts = async (req, res) => {
 
     if (featured !== undefined) query.isFeatured = featured === "true";
 
+    let finalQuery = { ...query };
+    if (enforceRadius) {
+      finalQuery.status = "active";
+      finalQuery = { $and: [finalQuery, getApprovedOrLegacyFilter()] };
+    } else {
+      if (status && status !== "all") {
+        finalQuery.status = status;
+      }
+      if (approvalStatus && String(approvalStatus).trim().toLowerCase() !== "all") {
+        const moderationFilter = buildApprovalStatusFilter(approvalStatus);
+        if (Object.keys(moderationFilter).length > 0) {
+          finalQuery = { $and: [finalQuery, moderationFilter] };
+        }
+      }
+    }
+
     const { page, limit, skip } = getPagination(req, {
       defaultLimit: 24,
       maxLimit: 100,
@@ -238,16 +328,16 @@ export const getProducts = async (req, res) => {
 
     const fetchFn = async () => {
       const [rawProducts, total] = await Promise.all([
-        Product.find(query)
+        Product.find(finalQuery)
           .select(
-            "name slug description sku price salePrice stock brand weight mainImage galleryImages headerId categoryId subcategoryId sellerId status isFeatured variants createdAt",
+            "name slug description sku price salePrice stock brand weight mainImage galleryImages headerId categoryId subcategoryId sellerId status approvalStatus approvalRequestedAt approvalReviewedAt approvalReviewedBy approvalNote lastSubmittedByRole isFeatured variants createdAt",
           )
           // No .populate() — names resolved via cache-backed entityNameCache
           .sort(sortQuery)
           .skip(skip)
           .limit(limit)
           .lean(),
-        Product.countDocuments(query),
+        Product.countDocuments(finalQuery),
       ]);
 
       // Collect unique category IDs (headerId, categoryId, subcategoryId) and seller IDs
@@ -290,7 +380,7 @@ export const getProducts = async (req, res) => {
       }));
 
       return {
-        items: products,
+        items: normalizeProductListModeration(products),
         page,
         limit,
         total,
@@ -317,7 +407,7 @@ export const getProducts = async (req, res) => {
 export const getSellerProducts = async (req, res) => {
   try {
     const sellerId = req.user.id;
-    const { stockStatus, sort } = req.query;
+    const { stockStatus, sort, approvalStatus } = req.query;
     const { page, limit, skip } = getPagination(req, {
       defaultLimit: 20,
       maxLimit: 100,
@@ -329,6 +419,13 @@ export const getSellerProducts = async (req, res) => {
       query.stock = { $gt: 0 };
     } else if (stockStatus === "out") {
       query.stock = 0;
+    }
+
+    if (approvalStatus && String(approvalStatus).trim().toLowerCase() !== "all") {
+      const approvalFilter = buildApprovalStatusFilter(approvalStatus);
+      if (Object.keys(approvalFilter).length > 0) {
+        Object.assign(query, approvalFilter);
+      }
     }
 
     const sortMap = {
@@ -343,10 +440,20 @@ export const getSellerProducts = async (req, res) => {
     };
     const sortQuery = sortMap[String(sort || "newest").toLowerCase()] || sortMap.newest;
 
-    const [products, total, totalAll, activeCount, lowStockCount, outOfStockCount] = await Promise.all([
+    const [
+      products,
+      total,
+      totalAll,
+      activeCount,
+      lowStockCount,
+      outOfStockCount,
+      pendingCount,
+      approvedCount,
+      rejectedCount,
+    ] = await Promise.all([
       Product.find(query)
         .select(
-          "name slug description sku price salePrice stock lowStockAlert brand weight mainImage galleryImages headerId categoryId subcategoryId sellerId status isFeatured variants createdAt",
+          "name slug description sku price salePrice stock lowStockAlert brand weight mainImage galleryImages headerId categoryId subcategoryId sellerId status approvalStatus approvalRequestedAt approvalReviewedAt approvalReviewedBy approvalNote lastSubmittedByRole isFeatured variants createdAt",
         )
         .populate("headerId", "name")
         .populate("categoryId", "name")
@@ -409,10 +516,25 @@ export const getSellerProducts = async (req, res) => {
         },
       }),
       Product.countDocuments({ ...baseSellerQuery, stock: 0 }),
+      Product.countDocuments({
+        ...baseSellerQuery,
+        approvalStatus: PRODUCT_APPROVAL_STATUS.PENDING,
+      }),
+      Product.countDocuments({
+        ...baseSellerQuery,
+        $and: [
+          { ...baseSellerQuery },
+          buildApprovalStatusFilter(PRODUCT_APPROVAL_STATUS.APPROVED),
+        ],
+      }),
+      Product.countDocuments({
+        ...baseSellerQuery,
+        approvalStatus: PRODUCT_APPROVAL_STATUS.REJECTED,
+      }),
     ]);
 
     return handleResponse(res, 200, "Seller products fetched", {
-      items: products,
+      items: normalizeProductListModeration(products),
       page,
       limit,
       total,
@@ -422,6 +544,9 @@ export const getSellerProducts = async (req, res) => {
         active: activeCount,
         lowStock: lowStockCount,
         outOfStock: outOfStockCount,
+        pending: pendingCount,
+        approved: approvedCount,
+        rejected: rejectedCount,
       },
     });
   } catch (error) {
@@ -434,8 +559,17 @@ export const getSellerProducts = async (req, res) => {
 ================================ */
 export const createProduct = async (req, res) => {
   try {
+    const role = String(req.user?.role || "").toLowerCase();
     const productData = { ...req.body };
-    productData.sellerId = req.user.id;
+    stripRestrictedModerationFields(productData);
+
+    if (role === "admin") {
+      if (!productData.sellerId) {
+        return handleResponse(res, 400, "sellerId is required for admin-created products");
+      }
+    } else {
+      productData.sellerId = req.user.id;
+    }
 
     // Handle multipart files (mainImage and galleryImages)
     const files = req.files || [];
@@ -528,6 +662,22 @@ export const createProduct = async (req, res) => {
       }));
     }
 
+    let moderationUpdate = {};
+    let successMessage = "Product created successfully";
+
+    if (role === "admin") {
+      moderationUpdate = buildAdminApprovedModerationUpdate(req.user?.id || null);
+    } else {
+      const approvalConfig = await getProductApprovalConfig();
+      if (approvalConfig.sellerCreateRequiresApproval) {
+        moderationUpdate = buildSellerPendingModerationUpdate();
+        successMessage = "Product submitted for admin approval";
+      } else {
+        moderationUpdate = buildSellerApprovedModerationUpdate();
+      }
+    }
+    Object.assign(productData, moderationUpdate);
+
     const product = await Product.create(productData);
     
     if (product && product._id) {
@@ -538,11 +688,17 @@ export const createProduct = async (req, res) => {
 
     try {
       await invalidate(buildKey("catalog", "productList", "*"));
+      await invalidate("cache:offersections:public:*");
     } catch (cacheErr) {
       console.error("Cache invalidation error (createProduct):", cacheErr);
     }
-    
-    return handleResponse(res, 201, "Product created successfully", product);
+
+    return handleResponse(
+      res,
+      201,
+      successMessage,
+      normalizeProductDocumentModeration(product?.toObject?.() || product),
+    );
   } catch (error) {
     console.error("Create Product Error:", error);
     if (error.code === 11000) {
@@ -559,8 +715,12 @@ export const updateProduct = async (req, res) => {
   try {
     const { id } = req.params;
     const sellerId = req.user.id;
-    const role = req.user.role;
+    const role = String(req.user.role || "").toLowerCase();
     const productData = { ...req.body };
+    stripRestrictedModerationFields(productData);
+    if (Object.prototype.hasOwnProperty.call(productData, "sellerId")) {
+      delete productData.sellerId;
+    }
 
     // Handle multipart files (mainImage and galleryImages)
     const files = req.files || [];
@@ -658,6 +818,22 @@ export const updateProduct = async (req, res) => {
       }));
     }
 
+    let moderationUpdate = {};
+    let successMessage = "Product updated successfully";
+
+    if (role === "admin") {
+      moderationUpdate = buildAdminApprovedModerationUpdate(req.user?.id || null);
+    } else {
+      const approvalConfig = await getProductApprovalConfig();
+      if (approvalConfig.sellerEditRequiresApproval) {
+        moderationUpdate = buildSellerPendingModerationUpdate();
+        successMessage = "Product changes submitted for admin approval";
+      } else {
+        moderationUpdate = buildSellerApprovedModerationUpdate();
+      }
+    }
+    Object.assign(productData, moderationUpdate);
+
     const updatedProduct = await Product.findByIdAndUpdate(
       id,
       { $set: productData },
@@ -670,6 +846,7 @@ export const updateProduct = async (req, res) => {
 
     try {
       await invalidate(buildKey("catalog", "productList", "*"));
+      await invalidate("cache:offersections:public:*");
     } catch (cacheErr) {
       console.error("Cache invalidation error (updateProduct):", cacheErr);
     }
@@ -677,8 +854,8 @@ export const updateProduct = async (req, res) => {
     return handleResponse(
       res,
       200,
-      "Product updated successfully",
-      updatedProduct,
+      successMessage,
+      normalizeProductDocumentModeration(updatedProduct?.toObject?.() || updatedProduct),
     );
   } catch (error) {
     console.error("Update Product Error:", error);
@@ -723,6 +900,7 @@ export const deleteProduct = async (req, res) => {
 
     try {
       await invalidate(buildKey("catalog", "productList", "*"));
+      await invalidate("cache:offersections:public:*");
     } catch (cacheErr) {
       console.error("Cache invalidation error (deleteProduct):", cacheErr);
     }
@@ -763,6 +941,9 @@ export const getProductById = async (req, res) => {
       cacheKey,
       async () =>
         Product.findById(id)
+          .select(
+            "name slug description sku price salePrice stock lowStockAlert brand weight mainImage galleryImages headerId categoryId subcategoryId sellerId status approvalStatus approvalRequestedAt approvalReviewedAt approvalReviewedBy approvalNote lastSubmittedByRole isFeatured variants createdAt",
+          )
           .populate("headerId", "name")
           .populate("categoryId", "name")
           .populate("subcategoryId", "name")
@@ -776,13 +957,228 @@ export const getProductById = async (req, res) => {
     }
 
     if (enforceRadius) {
+      const approvalState = resolveProductApprovalStatus(product);
+      if (product.status !== "active" || approvalState !== PRODUCT_APPROVAL_STATUS.APPROVED) {
+        return handleResponse(res, 404, "Product not found");
+      }
+    }
+
+    if (enforceRadius) {
       const sellerIdForProduct = String(product?.sellerId?._id || product?.sellerId);
       if (!nearbySellerSet || !nearbySellerSet.has(sellerIdForProduct)) {
         return handleResponse(res, 404, "Product not available in your area");
       }
     }
 
-    return handleResponse(res, 200, "Product details fetched", product);
+    return handleResponse(
+      res,
+      200,
+      "Product details fetched",
+      normalizeProductDocumentModeration(product),
+    );
+  } catch (error) {
+    return handleResponse(res, 500, error.message);
+  }
+};
+
+/* ===============================
+   ADMIN MODERATION LIST
+================================ */
+export const getModerationProducts = async (req, res) => {
+  try {
+    const {
+      approvalStatus = "all",
+      status = "all",
+      search = "",
+      sellerId,
+      category,
+      categoryId,
+      subcategory,
+      subcategoryId,
+      header,
+      headerId,
+      sort = "newest",
+    } = req.query;
+    const { page, limit, skip } = getPagination(req, {
+      defaultLimit: 25,
+      maxLimit: 100,
+    });
+
+    const baseQuery = {};
+    if (status && status !== "all") {
+      baseQuery.status = status;
+    }
+    if (sellerId && sellerId !== "all") {
+      baseQuery.sellerId = sellerId;
+    }
+
+    const finalHeaderId = header || headerId;
+    const finalCategoryId = category || categoryId;
+    const finalSubcategoryId = subcategory || subcategoryId;
+    if (finalHeaderId && finalHeaderId !== "all") {
+      baseQuery.headerId = finalHeaderId;
+    }
+    if (finalCategoryId && finalCategoryId !== "all") {
+      baseQuery.categoryId = finalCategoryId;
+    }
+    if (finalSubcategoryId && finalSubcategoryId !== "all") {
+      baseQuery.subcategoryId = finalSubcategoryId;
+    }
+
+    if (search && String(search).trim()) {
+      const term = String(search).trim();
+      baseQuery.$or = [
+        { name: { $regex: term, $options: "i" } },
+        { slug: { $regex: term, $options: "i" } },
+        { sku: { $regex: term, $options: "i" } },
+      ];
+    }
+
+    let moderatedQuery = { ...baseQuery };
+    const approvalFilter = buildApprovalStatusFilter(approvalStatus);
+    if (Object.keys(approvalFilter).length > 0) {
+      moderatedQuery = { $and: [moderatedQuery, approvalFilter] };
+    }
+
+    const sortMap = {
+      newest: { createdAt: -1 },
+      oldest: { createdAt: 1 },
+      "name-asc": { name: 1, createdAt: -1 },
+      "name-desc": { name: -1, createdAt: -1 },
+      "price-asc": { price: 1, createdAt: -1 },
+      "price-desc": { price: -1, createdAt: -1 },
+    };
+    const sortQuery = sortMap[String(sort || "newest").toLowerCase()] || sortMap.newest;
+
+    const [items, total, allCount, pendingCount, approvedCount, rejectedCount] =
+      await Promise.all([
+        Product.find(moderatedQuery)
+          .select(
+            "name slug description sku price salePrice stock lowStockAlert brand weight mainImage galleryImages headerId categoryId subcategoryId sellerId status approvalStatus approvalRequestedAt approvalReviewedAt approvalReviewedBy approvalNote lastSubmittedByRole isFeatured variants createdAt",
+          )
+          .populate("headerId", "name")
+          .populate("categoryId", "name")
+          .populate("subcategoryId", "name")
+          .populate("sellerId", "shopName name")
+          .populate("approvalReviewedBy", "name email")
+          .sort(sortQuery)
+          .skip(skip)
+          .limit(limit)
+          .lean(),
+        Product.countDocuments(moderatedQuery),
+        Product.countDocuments(baseQuery),
+        Product.countDocuments({
+          ...baseQuery,
+          approvalStatus: PRODUCT_APPROVAL_STATUS.PENDING,
+        }),
+        Product.countDocuments({
+          $and: [
+            { ...baseQuery },
+            buildApprovalStatusFilter(PRODUCT_APPROVAL_STATUS.APPROVED),
+          ],
+        }),
+        Product.countDocuments({
+          ...baseQuery,
+          approvalStatus: PRODUCT_APPROVAL_STATUS.REJECTED,
+        }),
+      ]);
+
+    return handleResponse(res, 200, "Moderation products fetched", {
+      items: normalizeProductListModeration(items),
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit) || 1,
+      counts: {
+        all: allCount,
+        pending: pendingCount,
+        approved: approvedCount,
+        rejected: rejectedCount,
+      },
+    });
+  } catch (error) {
+    return handleResponse(res, 500, error.message);
+  }
+};
+
+/* ===============================
+   ADMIN MODERATION ACTIONS
+================================ */
+export const approveProduct = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const note = req.body?.approvalNote ?? req.body?.note ?? "";
+    const moderationUpdate = buildAdminApprovedModerationUpdate(
+      req.user?.id || null,
+      note,
+    );
+
+    const updated = await Product.findByIdAndUpdate(
+      id,
+      { $set: moderationUpdate },
+      { new: true, runValidators: true },
+    )
+      .populate("headerId", "name")
+      .populate("categoryId", "name")
+      .populate("subcategoryId", "name")
+      .populate("sellerId", "shopName name")
+      .populate("approvalReviewedBy", "name email");
+
+    if (!updated) {
+      return handleResponse(res, 404, "Product not found");
+    }
+
+    await enqueueProductIndex(id);
+    await invalidate(`cache:catalog:product:${id}`);
+    await invalidate(buildKey("catalog", "productList", "*"));
+    await invalidate("cache:offersections:public:*");
+
+    return handleResponse(
+      res,
+      200,
+      "Product approved successfully",
+      normalizeProductDocumentModeration(updated?.toObject?.() || updated),
+    );
+  } catch (error) {
+    return handleResponse(res, 500, error.message);
+  }
+};
+
+export const rejectProduct = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const note = req.body?.approvalNote ?? req.body?.note ?? "";
+    const moderationUpdate = buildAdminRejectedModerationUpdate(
+      req.user?.id || null,
+      note,
+    );
+
+    const updated = await Product.findByIdAndUpdate(
+      id,
+      { $set: moderationUpdate },
+      { new: true, runValidators: true },
+    )
+      .populate("headerId", "name")
+      .populate("categoryId", "name")
+      .populate("subcategoryId", "name")
+      .populate("sellerId", "shopName name")
+      .populate("approvalReviewedBy", "name email");
+
+    if (!updated) {
+      return handleResponse(res, 404, "Product not found");
+    }
+
+    await enqueueProductIndex(id);
+    await invalidate(`cache:catalog:product:${id}`);
+    await invalidate(buildKey("catalog", "productList", "*"));
+    await invalidate("cache:offersections:public:*");
+
+    return handleResponse(
+      res,
+      200,
+      "Product rejected successfully",
+      normalizeProductDocumentModeration(updated?.toObject?.() || updated),
+    );
   } catch (error) {
     return handleResponse(res, 500, error.message);
   }

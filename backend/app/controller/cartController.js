@@ -1,8 +1,43 @@
 import Cart from "../models/cart.js";
+import Product from "../models/product.js";
 import handleResponse from "../utils/helper.js";
+import { getApprovedOrLegacyFilter } from "../services/productModerationService.js";
 
 const CART_POPULATE_FIELDS =
   "name slug price salePrice mainImage stock status headerId categoryId subcategoryId sellerId variants";
+
+const CUSTOMER_VISIBLE_PRODUCT_MATCH = {
+  status: "active",
+  ...getApprovedOrLegacyFilter(),
+};
+
+function sanitizeCartItems(cart) {
+  if (!cart || !Array.isArray(cart.items)) return cart;
+  cart.items = cart.items.filter((item) => Boolean(item?.productId));
+  return cart;
+}
+
+async function getCustomerVisibleProductById(productId) {
+  if (!productId) return null;
+  return Product.findOne({
+    _id: productId,
+    ...CUSTOMER_VISIBLE_PRODUCT_MATCH,
+  })
+    .select("_id")
+    .lean();
+}
+
+async function fetchPopulatedCart(cartId) {
+  const cart = await Cart.findById(cartId)
+    .populate({
+      path: "items.productId",
+      select: CART_POPULATE_FIELDS,
+      match: CUSTOMER_VISIBLE_PRODUCT_MATCH,
+    })
+    .lean();
+
+  return sanitizeCartItems(cart);
+}
 
 /* ===============================
    GET CUSTOMER CART
@@ -11,7 +46,11 @@ export const getCart = async (req, res) => {
   try {
     const customerId = req.user.id;
     let cart = await Cart.findOne({ customerId })
-      .populate("items.productId", CART_POPULATE_FIELDS)
+      .populate({
+        path: "items.productId",
+        select: CART_POPULATE_FIELDS,
+        match: CUSTOMER_VISIBLE_PRODUCT_MATCH,
+      })
       .lean();
 
     if (!cart) {
@@ -19,7 +58,7 @@ export const getCart = async (req, res) => {
       return handleResponse(res, 200, "Cart fetched successfully", newCart);
     }
 
-    return handleResponse(res, 200, "Cart fetched successfully", cart);
+    return handleResponse(res, 200, "Cart fetched successfully", sanitizeCartItems(cart));
   } catch (error) {
     return handleResponse(res, 500, error.message);
   }
@@ -33,6 +72,10 @@ export const addToCart = async (req, res) => {
     const customerId = req.user.id;
     const { productId, quantity = 1, variantSku = "" } = req.body;
     const normalizedVariantSku = String(variantSku || "").trim();
+    const customerVisibleProduct = await getCustomerVisibleProductById(productId);
+    if (!customerVisibleProduct) {
+      return handleResponse(res, 404, "Product is not available for purchase");
+    }
 
     let cart = await Cart.findOne({ customerId });
 
@@ -53,9 +96,7 @@ export const addToCart = async (req, res) => {
     }
 
     await cart.save();
-    const updatedCart = await Cart.findById(cart._id)
-      .populate("items.productId", CART_POPULATE_FIELDS)
-      .lean();
+    const updatedCart = await fetchPopulatedCart(cart._id);
 
     return handleResponse(res, 200, "Item added to cart", updatedCart);
   } catch (error) {
@@ -94,9 +135,7 @@ export const updateQuantity = async (req, res) => {
     }
 
     await cart.save();
-    const updatedCart = await Cart.findById(cart._id)
-      .populate("items.productId", CART_POPULATE_FIELDS)
-      .lean();
+    const updatedCart = await fetchPopulatedCart(cart._id);
 
     return handleResponse(res, 200, "Cart updated successfully", updatedCart);
   } catch (error) {
@@ -130,10 +169,7 @@ export const removeFromCart = async (req, res) => {
     });
 
     await cart.save();
-    const updatedCart = await Cart.findById(cart._id).populate(
-      "items.productId",
-      "name slug price salePrice mainImage stock status headerId categoryId subcategoryId sellerId",
-    );
+    const updatedCart = await fetchPopulatedCart(cart._id);
 
     return handleResponse(res, 200, "Item removed from cart", updatedCart);
   } catch (error) {

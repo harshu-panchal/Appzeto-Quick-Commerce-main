@@ -174,8 +174,13 @@ const AddProduct = () => {
       // Variants
       data.append("variants", JSON.stringify(formData.variants));
 
-      await sellerApi.createProduct(data);
-      toast.success("Product saved successfully!");
+      const response = await sellerApi.createProduct(data);
+      const approvalStatus = response?.data?.result?.approvalStatus;
+      if (approvalStatus === "pending") {
+        toast.success("Product submitted for admin approval");
+      } else {
+        toast.success(response?.data?.message || "Product saved successfully!");
+      }
       navigate("/seller/products");
     } catch (error) {
       toast.error(error.response?.data?.message || "Failed to save product");

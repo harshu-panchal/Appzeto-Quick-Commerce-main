@@ -3,6 +3,10 @@ import Setting from "../models/setting.js";
 import handleResponse from "../utils/helper.js";
 import { buildKey, getOrSet, getTTL, invalidate } from "../services/cacheService.js";
 import { uploadToCloudinary } from "../services/mediaService.js";
+import {
+  DEFAULT_PRODUCT_APPROVAL_CONFIG,
+  normalizeProductApprovalConfig,
+} from "../services/productModerationService.js";
 
 /** Allowed keys for settings update (strip unknown keys) */
 const ALLOWED_KEYS = [
@@ -45,7 +49,33 @@ const ALLOWED_KEYS = [
   "codEnabled",
   "onlineEnabled",
   "lowStockAlertsEnabled",
+  "productApproval",
 ];
+
+function flattenForMongoSet(prefix, value, target) {
+  if (value === undefined) return;
+
+  const isPlainObject =
+    value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    !(value instanceof Date);
+
+  if (!isPlainObject) {
+    target[prefix] = value;
+    return;
+  }
+
+  const keys = Object.keys(value);
+  if (!keys.length) {
+    target[prefix] = value;
+    return;
+  }
+
+  for (const key of keys) {
+    flattenForMongoSet(`${prefix}.${key}`, value[key], target);
+  }
+}
 
 /** Joi schema for validating settings update payload */
 const updateSettingsSchema = Joi.object({
@@ -93,6 +123,10 @@ const updateSettingsSchema = Joi.object({
   codEnabled: Joi.boolean(),
   onlineEnabled: Joi.boolean(),
   lowStockAlertsEnabled: Joi.boolean(),
+  productApproval: Joi.object({
+    sellerCreateRequiresApproval: Joi.boolean(),
+    sellerEditRequiresApproval: Joi.boolean(),
+  }).unknown(false),
 }).unknown(false);
 
 /**
@@ -113,7 +147,7 @@ export const getPublicSettings = async (req, res) => {
       async () => {
         const existing = await Setting.findOne(filter)
           .select(
-            "appName supportEmail supportPhone currencySymbol currencyCode timezone logoUrl faviconUrl primaryColor secondaryColor returnDeliveryCommission deliveryPricingMode pricingMode customerBaseDeliveryFee riderBasePayout baseDeliveryCharge baseDistanceCapacityKm incrementalKmSurcharge deliveryPartnerRatePerKm fleetCommissionRatePerKm fixedDeliveryFee handlingFeeStrategy codEnabled onlineEnabled lowStockAlertsEnabled createdAt",
+            "appName supportEmail supportPhone currencySymbol currencyCode timezone logoUrl faviconUrl primaryColor secondaryColor returnDeliveryCommission deliveryPricingMode pricingMode customerBaseDeliveryFee riderBasePayout baseDeliveryCharge baseDistanceCapacityKm incrementalKmSurcharge deliveryPartnerRatePerKm fleetCommissionRatePerKm fixedDeliveryFee handlingFeeStrategy codEnabled onlineEnabled lowStockAlertsEnabled productApproval createdAt",
           )
           .lean();
         return existing || null;
@@ -126,6 +160,8 @@ export const getPublicSettings = async (req, res) => {
       settings = created.toObject();
       await invalidate("cache:platform:settings:*");
     }
+
+    settings.productApproval = normalizeProductApprovalConfig(settings || {});
 
     return handleResponse(res, 200, "Settings fetched successfully", settings);
   } catch (error) {
@@ -161,12 +197,16 @@ export const updateSettings = async (req, res) => {
     const filter = tenantId
       ? { tenantId }
       : { $or: [{ tenantId: null }, { tenantId: { $exists: false } }] };
-    const toSet = Object.fromEntries(
-      Object.entries(value).filter(([, v]) => v !== undefined),
-    );
+    const toSet = {};
+    for (const [key, v] of Object.entries(value)) {
+      if (v === undefined) continue;
+      flattenForMongoSet(key, v, toSet);
+    }
     if (Object.keys(toSet).length === 0) {
       const current = await Setting.findOne(filter).lean();
-      return handleResponse(res, 200, "Settings unchanged", current || {});
+      const result = current || {};
+      result.productApproval = normalizeProductApprovalConfig(result);
+      return handleResponse(res, 200, "Settings unchanged", result);
     }
 
     const settings = await Setting.findOneAndUpdate(
@@ -176,7 +216,14 @@ export const updateSettings = async (req, res) => {
     );
     await invalidate("cache:platform:settings:*");
 
-    return handleResponse(res, 200, "Settings updated successfully", settings);
+    const result = settings?.toObject?.() || settings || {};
+    if (!result.productApproval) {
+      result.productApproval = { ...DEFAULT_PRODUCT_APPROVAL_CONFIG };
+    } else {
+      result.productApproval = normalizeProductApprovalConfig(result);
+    }
+
+    return handleResponse(res, 200, "Settings updated successfully", result);
   } catch (err) {
     return handleResponse(res, 500, err.message);
   }

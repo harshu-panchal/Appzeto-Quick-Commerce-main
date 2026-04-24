@@ -25,10 +25,6 @@ function parseEnvUrl(rawUrl) {
   }
 }
 
-function shouldRewriteLocalhost(hostname) {
-  return hostname === "localhost" || hostname === "127.0.0.1";
-}
-
 export function resolveApiBaseUrl() {
   const envUrl =
     parseEnvUrl(import.meta.env.VITE_API_URL) ||
@@ -42,9 +38,6 @@ export function resolveApiBaseUrl() {
 
   try {
     const parsed = new URL(envUrl);
-    if (shouldRewriteLocalhost(parsed.hostname) && shouldRewriteLocalhost(browserHostname)) {
-      parsed.hostname = browserHostname;
-    }
     return `${normalizeOrigin(parsed.origin)}${ensureApiPath(parsed.pathname)}`;
   } catch {
     const fallbackHost = browserHostname || "localhost";

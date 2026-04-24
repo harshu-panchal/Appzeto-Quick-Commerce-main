@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@core/context/AuthContext";
-import { onTicketMessage } from "@core/services/orderSocket";
+import { disconnectOrderSocket, onTicketMessage } from "@core/services/orderSocket";
 
 const SupportUnreadContext = createContext(undefined);
 
@@ -18,8 +18,13 @@ function sumCounts(map) {
   return Object.values(map).reduce((acc, v) => acc + (Number.isFinite(v) ? v : 0), 0);
 }
 
+function getCurrentPathname() {
+  return typeof window === "undefined" ? "" : window.location.pathname;
+}
+
 export const SupportUnreadProvider = ({ children }) => {
   const { token, role, user } = useAuth();
+  const [pathname, setPathname] = useState(getCurrentPathname);
 
   const userId = useMemo(() => {
     return String(user?._id || user?.id || "").trim();
@@ -40,6 +45,32 @@ export const SupportUnreadProvider = ({ children }) => {
 
   const activeTicketIdRef = useRef("");
   const isViewingRef = useRef(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+
+    const updatePathname = () => setPathname(window.location.pathname);
+    const originalPushState = window.history.pushState;
+    const originalReplaceState = window.history.replaceState;
+
+    window.history.pushState = function pushState(...args) {
+      const result = originalPushState.apply(this, args);
+      updatePathname();
+      return result;
+    };
+    window.history.replaceState = function replaceState(...args) {
+      const result = originalReplaceState.apply(this, args);
+      updatePathname();
+      return result;
+    };
+
+    window.addEventListener("popstate", updatePathname);
+    return () => {
+      window.history.pushState = originalPushState;
+      window.history.replaceState = originalReplaceState;
+      window.removeEventListener("popstate", updatePathname);
+    };
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -85,6 +116,10 @@ export const SupportUnreadProvider = ({ children }) => {
     if (!token) return;
     const r = String(role || "").toLowerCase();
     if (r !== "admin" && r !== "customer" && r !== "user") return;
+    if (r === "admin" && pathname.startsWith("/admin/settings")) {
+      disconnectOrderSocket();
+      return;
+    }
 
     const getToken = () => token;
     const offMessage = onTicketMessage(getToken, (payload) => {
@@ -115,7 +150,7 @@ export const SupportUnreadProvider = ({ children }) => {
     return () => {
       offMessage?.();
     };
-  }, [token, role]);
+  }, [token, role, pathname]);
 
   const value = useMemo(
     () => ({
@@ -137,4 +172,3 @@ export const useSupportUnread = () => {
   if (!ctx) throw new Error("useSupportUnread must be used within SupportUnreadProvider");
   return ctx;
 };
-
