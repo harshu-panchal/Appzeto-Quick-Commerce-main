@@ -786,7 +786,7 @@ const ProductDetailSheet = () => {
                             onWheel={handleWheel}
                         >
                             {/* Product Image Carousel */}
-                            <div className="relative w-full aspect-[4/3] bg-gradient-to-b from-[#F5F7F8] to-white pt-16 pb-8">
+                            <div className="relative w-full bg-gradient-to-b from-[#F5F7F8] to-white pt-0 pb-4 h-[52vh] min-h-[320px] max-h-[560px]">
                                 <div
                                     ref={scrollRef}
                                     className="flex overflow-x-auto snap-x snap-mandatory no-scrollbar h-full w-full"
@@ -796,7 +796,7 @@ const ProductDetailSheet = () => {
                                     }}
                                 >
                                     {allImages.map((img, i) => (
-                                        <div key={i} className="flex-shrink-0 w-full h-full snap-center flex items-center justify-center px-12">
+                                        <div key={i} className="flex-shrink-0 w-full h-full snap-center flex items-center justify-center px-0 sm:px-4">
                                             <motion.img
                                                 initial={{ scale: 0.8, opacity: 0 }}
                                                 animate={{ scale: 1, opacity: 1 }}
