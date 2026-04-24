@@ -5,7 +5,7 @@ const CLOUDINARY_UPLOAD_SEGMENT_REGEX = /\/upload\/([^/]+)\//i;
  * Appends Cloudinary optimisation transforms to a URL.
  * Safe to call on any URL — non-Cloudinary URLs are returned unchanged.
  */
-export function applyCloudinaryTransform(url, params = "f_auto,q_auto,w_300") {
+export function applyCloudinaryTransform(url, params = "f_auto,q_auto:best,w_600,dpr_auto") {
   if (!url || !CLOUDINARY_REGEX.test(url)) return url;
   const match = url.match(CLOUDINARY_UPLOAD_SEGMENT_REGEX);
   if (!match) return url;

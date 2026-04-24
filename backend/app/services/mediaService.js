@@ -24,13 +24,13 @@ function getAllowedMimeTypes() {
 }
 
 function getOptimizedImageFormat() {
-  return String(process.env.CLOUDINARY_IMAGE_UPLOAD_FORMAT || "webp")
+  return String(process.env.CLOUDINARY_IMAGE_UPLOAD_FORMAT || "")
     .trim()
     .toLowerCase();
 }
 
 function getOptimizedImageQuality() {
-  const raw = String(process.env.CLOUDINARY_IMAGE_UPLOAD_QUALITY || "auto:good").trim();
+  const raw = String(process.env.CLOUDINARY_IMAGE_UPLOAD_QUALITY || "").trim();
   // Allow legacy values like "q_auto:good" while Cloudinary expects quality "auto:good".
   return raw.startsWith("q_") ? raw.slice(2) : raw;
 }

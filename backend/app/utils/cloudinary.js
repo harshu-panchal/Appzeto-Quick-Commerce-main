@@ -10,10 +10,10 @@ cloudinary.config({
 });
 
 const getOptimizedImageFormat = () =>
-    String(process.env.CLOUDINARY_IMAGE_UPLOAD_FORMAT || 'webp').trim().toLowerCase();
+    String(process.env.CLOUDINARY_IMAGE_UPLOAD_FORMAT || '').trim().toLowerCase();
 
 const getOptimizedImageQuality = () =>
-    String(process.env.CLOUDINARY_IMAGE_UPLOAD_QUALITY || 'auto:good').trim();
+    String(process.env.CLOUDINARY_IMAGE_UPLOAD_QUALITY || '').trim();
 
 const isImageMimeType = (mimeType = '') =>
     String(mimeType || '').trim().toLowerCase().startsWith('image/');

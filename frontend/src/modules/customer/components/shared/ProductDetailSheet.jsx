@@ -358,7 +358,7 @@ const ProductDetailSheet = () => {
                                                                 : 'border-gray-200/60 opacity-50 hover:opacity-90 bg-white/60'
                                                         )}
                                                     >
-                                                        <img src={applyCloudinaryTransform(img)} alt="" loading="lazy" className="w-full h-full object-contain p-1.5" />
+                                                        <img src={applyCloudinaryTransform(img, "f_auto,q_auto:best,w_160,dpr_auto")} alt="" loading="lazy" className="w-full h-full object-contain p-1.5" />
                                                     </motion.button>
                                                 ))}
                                             </div>
@@ -373,7 +373,7 @@ const ProductDetailSheet = () => {
                                                     animate={{ scale: 1, opacity: 1 }}
                                                     exit={{ scale: 0.93, opacity: 0 }}
                                                     transition={{ duration: 0.15 }}
-                                                    src={applyCloudinaryTransform(allImages[activeImageIndex])}
+                                                    src={applyCloudinaryTransform(allImages[activeImageIndex], "f_auto,q_auto:best,w_1200,dpr_auto")}
                                                     alt={`${selectedProduct.name} ${activeImageIndex + 1}`}
                                                     className="w-full h-full object-contain mix-blend-multiply drop-shadow-2xl hover:scale-[1.03] transition-transform duration-500 absolute inset-0 m-auto p-12"
                                                 />
@@ -801,9 +801,10 @@ const ProductDetailSheet = () => {
                                                 initial={{ scale: 0.8, opacity: 0 }}
                                                 animate={{ scale: 1, opacity: 1 }}
                                                 transition={{ duration: 0.4 }}
-                                                src={applyCloudinaryTransform(img)}
+                                                src={applyCloudinaryTransform(img, "f_auto,q_auto:best,w_1200,dpr_auto")}
                                                 alt={`${selectedProduct.name} ${i + 1}`}
                                                 className="w-full h-full object-contain mix-blend-multiply drop-shadow-xl"
+                                                style={{ objectPosition: 'center calc(50% - 40px)' }}
                                             />
                                         </div>
                                     ))}
