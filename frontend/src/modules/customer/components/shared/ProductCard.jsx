@@ -169,11 +169,7 @@ const ProductCard = React.memo(
         )}
         onClick={handleProductClick}>
         {/* Top Image Section */}
-        <div
-          className={cn(
-            "relative pb-0",
-            compact ? "p-1" : "p-1 sm:p-2.5",
-          )}>
+        <div className="relative">
           {/* Badge (Custom or Discount) */}
           {(badge ||
             product.discount ||
@@ -182,8 +178,8 @@ const ProductCard = React.memo(
                 className={cn(
                   "absolute z-10 bg-primary text-primary-foreground font-[900] rounded-md shadow-sm uppercase tracking-wider flex items-center justify-center",
                   compact
-                    ? "top-1.5 left-1.5 px-1.5 py-0.5 text-[7px]"
-                    : "top-1.5 left-1.5 px-1 py-0.5 text-[7px] sm:top-3 sm:left-3 sm:px-2 sm:py-1 sm:text-[9px]",
+                    ? "top-2 left-2 px-1.5 py-0.5 text-[7px]"
+                    : "top-2 left-2 px-1 py-0.5 text-[7px] sm:top-3 sm:left-3 sm:px-2 sm:py-1 sm:text-[9px]",
                 )}>
                 {badge ||
                   product.discount ||
@@ -196,8 +192,8 @@ const ProductCard = React.memo(
             className={cn(
               "absolute z-10 bg-white/90 backdrop-blur-sm rounded-full shadow-lg flex items-center justify-center cursor-pointer hover:bg-white transition-all active:scale-90",
               compact
-                ? "top-1.5 right-1.5 h-7 w-7"
-                : "top-1.5 right-1.5 h-6.5 w-6.5 sm:top-3 sm:right-3 sm:h-8 sm:w-8",
+                ? "top-2 right-2 h-7 w-7"
+                : "top-2 right-2 h-6.5 w-6.5 sm:top-3 sm:right-3 sm:h-8 sm:w-8",
             )}>
             <motion.div
               whileTap={{ scale: 0.8 }}
@@ -228,19 +224,15 @@ const ProductCard = React.memo(
 
           <div
             className={cn(
-              "block w-full overflow-hidden flex items-center justify-center transition-transform duration-500 group-hover:scale-105",
-              compact
-                ? "aspect-square rounded-md bg-white/70 p-1.5"
-                : compact || neutralBg
-                ? "aspect-square rounded-md sm:rounded-xl bg-white/70 p-1 sm:p-2"
-                : "aspect-square rounded-md sm:rounded-xl bg-white/50 p-1 sm:p-2",
+              "block w-full overflow-hidden flex items-center justify-center transition-transform duration-500 group-hover:scale-105 aspect-square",
+              compact || neutralBg ? "bg-white/70" : "bg-white/50"
             )}>
             <img
               ref={imageRef}
               src={applyCloudinaryTransform(product.image)}
               alt={product.name}
               loading="lazy"
-              className="w-full h-full object-contain mix-blend-multiply drop-shadow-sm"
+              className="w-full h-full object-cover mix-blend-multiply"
             />
           </div>
         </div>
@@ -366,4 +358,3 @@ const ProductCard = React.memo(
 );
 
 export default ProductCard;
-
