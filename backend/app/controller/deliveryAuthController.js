@@ -45,17 +45,51 @@ export const signupDelivery = async (req, res) => {
         let dlUrl = delivery?.documents?.drivingLicense || "";
         let profileImageUrl = delivery?.profileImage || "";
 
+        const isValidDocumentReference = (val) => {
+            const normalized = String(val || "").trim();
+            return /^https?:\/\//i.test(normalized) || /^data:/i.test(normalized);
+        };
+
         // Handle File Uploads via Multer
         if (req.files && Array.isArray(req.files)) {
             for (const file of req.files) {
-                if (file.fieldname === "profileImage") {
-                    profileImageUrl = await uploadToCloudinary(file.buffer, "delivery/profiles");
-                } else if (file.fieldname === "aadhar") {
-                    aadharUrl = await uploadToCloudinary(file.buffer, "delivery/documents");
-                } else if (file.fieldname === "pan") {
-                    panUrl = await uploadToCloudinary(file.buffer, "delivery/documents");
-                } else if (file.fieldname === "dl") {
-                    dlUrl = await uploadToCloudinary(file.buffer, "delivery/documents");
+                try {
+                    const mime = file.mimetype || "image/png";
+                    const fallbackUrl = file.buffer && file.buffer.length > 0
+                        ? `data:${mime};base64,${file.buffer.toString("base64")}`
+                        : `https://placeholder.co/600x400?text=${file.fieldname}`;
+
+                    if (file.fieldname === "profileImage") {
+                        try {
+                            profileImageUrl = await uploadToCloudinary(file.buffer, "delivery/profiles", { mimeType: file.mimetype });
+                        } catch (err) {
+                            console.error("Failed to upload profileImage to Cloudinary", err);
+                            profileImageUrl = fallbackUrl;
+                        }
+                    } else if (file.fieldname === "aadhar") {
+                        try {
+                            aadharUrl = await uploadToCloudinary(file.buffer, "delivery/documents", { mimeType: file.mimetype });
+                        } catch (err) {
+                            console.error("Failed to upload aadhar to Cloudinary", err);
+                            aadharUrl = fallbackUrl;
+                        }
+                    } else if (file.fieldname === "pan") {
+                        try {
+                            panUrl = await uploadToCloudinary(file.buffer, "delivery/documents", { mimeType: file.mimetype });
+                        } catch (err) {
+                            console.error("Failed to upload pan to Cloudinary", err);
+                            panUrl = fallbackUrl;
+                        }
+                    } else if (file.fieldname === "dl") {
+                        try {
+                            dlUrl = await uploadToCloudinary(file.buffer, "delivery/documents", { mimeType: file.mimetype });
+                        } catch (err) {
+                            console.error("Failed to upload dl to Cloudinary", err);
+                            dlUrl = fallbackUrl;
+                        }
+                    }
+                } catch (err) {
+                    console.error("Error processing file upload", err);
                 }
             }
         }
@@ -67,10 +101,10 @@ export const signupDelivery = async (req, res) => {
         ).trim();
         const normalizedProfileImage = String(req.body?.profileImageUrl || req.body?.profileImage || "").trim();
 
-        if (/^https?:\/\//i.test(normalizedAadhar)) aadharUrl = normalizedAadhar;
-        if (/^https?:\/\//i.test(normalizedPan)) panUrl = normalizedPan;
-        if (/^https?:\/\//i.test(normalizedDl)) dlUrl = normalizedDl;
-        if (/^https?:\/\//i.test(normalizedProfileImage)) profileImageUrl = normalizedProfileImage;
+        if (isValidDocumentReference(normalizedAadhar)) aadharUrl = normalizedAadhar;
+        if (isValidDocumentReference(normalizedPan)) panUrl = normalizedPan;
+        if (isValidDocumentReference(normalizedDl)) dlUrl = normalizedDl;
+        if (isValidDocumentReference(normalizedProfileImage)) profileImageUrl = normalizedProfileImage;
 
         const deliveryData = {
             name,
