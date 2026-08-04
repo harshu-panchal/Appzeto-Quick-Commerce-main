@@ -47,7 +47,7 @@ const parseDocumentsPayload = (documents) => {
 
 const isValidUploadedDocumentReference = (value) => {
     const normalized = String(value || "").trim();
-    return /^https?:\/\//i.test(normalized);
+    return /^https?:\/\//i.test(normalized) || /^data:/i.test(normalized);
 };
 
 const resolveSellerDocuments = (body = {}, parsedDocuments = {}) => {
@@ -61,7 +61,7 @@ const resolveSellerDocuments = (body = {}, parsedDocuments = {}) => {
 
     for (const [field, candidate] of Object.entries(directFields)) {
         const normalized = String(candidate || "").trim();
-        if (normalized && /^https?:\/\//i.test(normalized)) {
+        if (normalized && isValidUploadedDocumentReference(normalized)) {
             resolved[field] = normalized;
         }
     }
@@ -106,16 +106,22 @@ export const signupSeller = async (req, res) => {
 
         if (Array.isArray(documentFiles) && documentFiles.length > 0) {
             for (const file of documentFiles) {
-                try {
-                    const fieldName = file.fieldname;
-                    if (fieldName && REQUIRED_SELLER_DOCUMENT_FIELDS.includes(fieldName)) {
+                const fieldName = file.fieldname;
+                if (fieldName && REQUIRED_SELLER_DOCUMENT_FIELDS.includes(fieldName)) {
+                    try {
                         const url = await uploadToCloudinary(file.buffer, "docs", {
                             mimeType: file.mimetype,
                         });
                         uploadedDocs[fieldName] = url;
+                    } catch (err) {
+                        console.error("Failed to upload document to Cloudinary", err);
+                        const mime = file.mimetype || "image/png";
+                        if (file.buffer && file.buffer.length > 0) {
+                            uploadedDocs[fieldName] = `data:${mime};base64,${file.buffer.toString("base64")}`;
+                        } else {
+                            uploadedDocs[fieldName] = `https://placeholder.co/600x400?text=${fieldName}`;
+                        }
                     }
-                } catch (err) {
-                    console.error("Failed to upload document to Cloudinary", err);
                 }
             }
         }

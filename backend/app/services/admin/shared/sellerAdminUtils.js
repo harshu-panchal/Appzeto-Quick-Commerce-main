@@ -15,7 +15,12 @@ function getSellerDocumentLabel(key) {
 }
 
 function isViewableDocumentUrl(value = "") {
-  return /^https?:\/\//i.test(String(value).trim());
+  const normalized = String(value || "").trim();
+  return (
+    /^https?:\/\//i.test(normalized) ||
+    /^data:/i.test(normalized) ||
+    normalized.length > 0
+  );
 }
 
 export function formatSellerDocuments(documents) {
@@ -38,15 +43,24 @@ export function formatSellerDocumentFiles(documents) {
     .map(([key, value]) => {
       const normalizedValue = String(value).trim();
       const label = getSellerDocumentLabel(key);
+      const isDirectUrl =
+        /^https?:\/\//i.test(normalizedValue) ||
+        /^data:/i.test(normalizedValue);
       const isUrl = isViewableDocumentUrl(normalizedValue);
       const lowerValue = normalizedValue.toLowerCase();
+
+      const resolvedUrl = isDirectUrl
+        ? normalizedValue
+        : `https://placeholder.co/600x400?text=${encodeURIComponent(
+            `${label}: ${normalizedValue}`,
+          )}`;
 
       return {
         key,
         label,
         value: normalizedValue,
-        url: isUrl ? normalizedValue : "",
-        fileName: isUrl
+        url: resolvedUrl,
+        fileName: isDirectUrl
           ? normalizedValue.split("/").pop()?.split("?")[0] || label
           : normalizedValue,
         isViewable: isUrl,

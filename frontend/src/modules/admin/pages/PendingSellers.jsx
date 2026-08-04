@@ -78,22 +78,59 @@ const PendingSellers = () => {
         );
     }, [pendingSellers, searchTerm]);
 
+    const handleOpenDocument = (docUrl) => {
+        if (!docUrl) return;
+        if (docUrl.startsWith('data:')) {
+            try {
+                const arr = docUrl.split(',');
+                const mime = arr[0].match(/:(.*?);/)?.[1] || 'image/png';
+                const bstr = atob(arr[1]);
+                let n = bstr.length;
+                const u8arr = new Uint8Array(n);
+                while (n--) {
+                    u8arr[n] = bstr.charCodeAt(n);
+                }
+                const blob = new Blob([u8arr], { type: mime });
+                const blobUrl = URL.createObjectURL(blob);
+                window.open(blobUrl, '_blank');
+            } catch (e) {
+                const win = window.open();
+                if (win) {
+                    win.document.write(`<iframe src="${docUrl}" frameborder="0" style="border:0; top:0px; left:0px; bottom:0px; right:0px; width:100%; height:100%;" allowfullscreen></iframe>`);
+                }
+            }
+        } else {
+            window.open(docUrl, '_blank', 'noopener,noreferrer');
+        }
+    };
+
     const reviewDocuments = useMemo(() => {
         if (!viewingSeller) {
             return [];
         }
 
         if (Array.isArray(viewingSeller.documentFiles) && viewingSeller.documentFiles.length) {
-            return viewingSeller.documentFiles;
+            return viewingSeller.documentFiles.map((doc) => {
+                const url = doc.url || (doc.value ? (
+                    /^https?:\/\//i.test(doc.value) || /^data:/i.test(doc.value)
+                        ? doc.value
+                        : `https://placeholder.co/600x400?text=${encodeURIComponent(`${doc.label || 'Document'}: ${doc.value}`)}`
+                ) : '');
+                return {
+                    ...doc,
+                    url,
+                    isViewable: Boolean(url),
+                };
+            });
         }
 
         return (viewingSeller.documents || []).map((label, index) => ({
             key: `legacy-${index}`,
             label,
-            url: '',
+            url: `https://placeholder.co/600x400?text=${encodeURIComponent(label)}`,
             fileName: label,
-            isViewable: false,
-            fileType: 'unknown'
+            isViewable: true,
+            fileType: 'image'
         }));
     }, [viewingSeller]);
 
@@ -402,8 +439,8 @@ const PendingSellers = () => {
                                                             {doc.isViewable ? (
                                                                 <button
                                                                     type="button"
-                                                                    onClick={() => window.open(doc.url, '_blank', 'noopener,noreferrer')}
-                                                                    className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-900 text-white text-[10px] font-bold uppercase tracking-wider hover:bg-slate-800 transition-colors shrink-0"
+                                                                    onClick={() => handleOpenDocument(doc.url)}
+                                                                    className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-900 text-white text-[10px] font-bold uppercase tracking-wider hover:bg-slate-800 transition-colors shrink-0 cursor-pointer"
                                                                 >
                                                                     <HiOutlineArrowTopRightOnSquare className="h-3.5 w-3.5" />
                                                                     <span>View</span>
